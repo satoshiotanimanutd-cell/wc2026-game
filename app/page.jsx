@@ -222,6 +222,10 @@ export default function App() {
   // ─ 初期ロード ─
   useEffect(() => {
     loadState();
+    // ブラウザに保存されたログイン状態を復元
+    const saved = localStorage.getItem('wc2026_player');
+    if (saved === '__admin__') { setIsAdmin(true); setView('admin'); }
+    else if (saved) { setMe(saved); }
   }, []);
 
   async function loadState() {
@@ -281,10 +285,10 @@ export default function App() {
   if (!me && !isAdmin) {
     return <LoginScreen
       gameState={gameState}
-      onLogin={(name) => setMe(name)}
+      onLogin={(name) => { setMe(name); localStorage.setItem('wc2026_player', name); }}
       onAdmin={() => {
         const pw = prompt('管理者パスワードを入力してください:');
-        if (pw === ADMIN_PW) { setIsAdmin(true); setView('admin'); }
+        if (pw === ADMIN_PW) { setIsAdmin(true); setView('admin'); localStorage.setItem('wc2026_player', '__admin__'); }
         else alert('パスワードが違います');
       }}
       onSetup={(players) => {
@@ -376,7 +380,7 @@ export default function App() {
           {saving && <span style={S.saving}>保存中...</span>}
           {co > 0 && <span style={S.carryBadge}>🔥キャリーオーバー {co.toLocaleString()}pt</span>}
           <span style={S.userName}>{isAdmin ? '👑管理者' : me}</span>
-          <button style={S.logoutBtn} onClick={() => { setMe(null); setIsAdmin(false); setView('matches'); }}>ログアウト</button>
+          <button style={S.logoutBtn} onClick={() => { setMe(null); setIsAdmin(false); setView('matches'); localStorage.removeItem('wc2026_player'); }}>ログアウト</button>
         </div>
       </div>
 
