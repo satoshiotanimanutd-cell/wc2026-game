@@ -147,6 +147,35 @@ const TEAMS = [
   'イングランド','クロアチア','ガーナ','パナマ',
 ].sort((a, b) => a.localeCompare(b, 'ja'));
 
+// ─── 阿弥陀くじ・ドラフト ヘルパー ──────────────────────────
+const AMIDA_LEVELS = 6;
+
+function generateAmidaConnectors(n) {
+  const cs = [];
+  for (let lvl = 0; lvl < AMIDA_LEVELS; lvl++) {
+    let i = 0;
+    while (i < n - 1) {
+      if (Math.random() > 0.4) { cs.push({ lvl, left: i }); i += 2; }
+      else i++;
+    }
+  }
+  return cs;
+}
+
+function traceAmida(startPos, connectors) {
+  let pos = startPos;
+  for (let lvl = 0; lvl < AMIDA_LEVELS; lvl++) {
+    const c = connectors.find(c => c.lvl === lvl && (c.left === pos || c.left + 1 === pos));
+    if (c) pos = c.left === pos ? c.left + 1 : c.left;
+  }
+  return pos;
+}
+
+function getDraftSequence(n) {
+  const a = Array.from({ length: n }, (_, i) => i);
+  return [...a, ...[...a].reverse()];
+}
+
 function fmtDate(iso) {
   const d = new Date(iso);
   return `${d.getMonth()+1}/${d.getDate()}`;
@@ -541,10 +570,24 @@ export default function App() {
           gameState={gameState}
           me={me}
           isAdmin={isAdmin}
-          onSave={(picks) => {
-            const ns = { ...gameState, championPicks: { ...(gameState.championPicks||{}), [me]: picks } };
+          onSetDraftOrder={(order) => {
+            // orderがnullの場合はリセット
+            const ns = { ...gameState, draftOrder: order, championPicks: {} };
             setGameState(ns);
             saveState(ns);
+          }}
+          onDraftPick={(country) => {
+            const existing = gameState.championPicks?.[me] || [];
+            const ns = { ...gameState, championPicks: { ...(gameState.championPicks||{}), [me]: [...existing, country] } };
+            setGameState(ns);
+            saveState(ns);
+          }}
+          onReloadState={async () => {
+            try {
+              const res = await fetch('/api/game-state');
+              const data = await res.json();
+              if (data?.players) setGameState(data);
+            } catch {}
           }}
         />
       )}
@@ -594,94 +637,209 @@ export default function App() {
   );
 }
 
-// ─── 優勝予想コンポーネント ───────────────────────────────
-function ChampionView({ gameState, me, isAdmin, onSave }) {
-  const picks = gameState.championPicks || {};
-  const myPicks = picks[me] || [];
-  const [selected, setSelected] = useState(myPicks);
-  const S = styles;
+// ─── 阿弥陀くじ SVG ─────────────────────────────────────────
+function AmidaDisplay({ players, connectors, showResult }) {
+  const n = players.length;
+  const SP = Math.min(68, 260 / Math.max(n - 1, 1));
+  const PX = 36, W = PX * 2 + (n - 1) * SP, H = 270;
+  const TY = 48, BY = 222, LH = (BY - TY) / (AMIDA_LEVELS + 1);
+  const lx = i => PX + i * SP;
+  const ly = l => TY + (l + 1) * LH;
+  const COLORS = ['#f87171','#4ade80','#60a5fa','#fbbf24','#c084fc'];
 
-  // 開幕前のみ変更可（最初の試合キックオフ前）
-  const locked = isLocked(ALL_MATCHES[0].kickoff);
-
-  function toggle(team) {
-    if (locked) return;
-    setSelected(prev => {
-      if (prev.includes(team)) return prev.filter(t => t !== team);
-      if (prev.length >= 2) return prev;
-      return [...prev, team];
-    });
+  function tracePath(si) {
+    let p = si;
+    const pts = [[lx(p), TY]];
+    for (let l = 0; l < AMIDA_LEVELS; l++) {
+      const c = connectors.find(c => c.lvl === l && (c.left === p || c.left + 1 === p));
+      if (c) { pts.push([lx(p), ly(l)]); p = c.left === p ? c.left + 1 : c.left; pts.push([lx(p), ly(l)]); }
+    }
+    pts.push([lx(p), BY]);
+    return pts;
   }
 
-  function save() {
-    if (selected.length !== 2) return alert('2カ国選んでください');
-    onSave(selected);
-    alert('✅ 優勝予想を保存しました！');
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%', maxWidth:W, display:'block', margin:'0 auto', background:'#0f172a', borderRadius:10, padding:4}}>
+      {players.map((p, i) => (
+        <text key={'n'+i} x={lx(i)} y={28} textAnchor="middle" fill={showResult ? COLORS[i%5] : '#93c5fd'} fontSize={10} fontWeight="700">
+          {p.slice(0, 4)}
+        </text>
+      ))}
+      {players.map((_, i) => <line key={'v'+i} x1={lx(i)} y1={TY} x2={lx(i)} y2={BY} stroke="#334155" strokeWidth={2}/>)}
+      {connectors.map((c, k) => <line key={'h'+k} x1={lx(c.left)} y1={ly(c.lvl)} x2={lx(c.left+1)} y2={ly(c.lvl)} stroke="#475569" strokeWidth={2}/>)}
+      {showResult && players.map((_, i) => {
+        const pts = tracePath(i).map(([x,y]) => `${x},${y}`).join(' ');
+        return <polyline key={'p'+i} points={pts} fill="none" stroke={COLORS[i%5]} strokeWidth={3} opacity={0.85} strokeLinejoin="round"/>;
+      })}
+      {players.map((_, i) => (
+        <text key={'d'+i} x={lx(i)} y={H-8} textAnchor="middle" fill="#ffd700" fontSize={14} fontWeight="800">{i+1}</text>
+      ))}
+    </svg>
+  );
+}
+
+// ─── 優勝予想コンポーネント ───────────────────────────────
+function ChampionView({ gameState, me, isAdmin, onSetDraftOrder, onDraftPick, onReloadState }) {
+  const [amidaConnectors, setAmidaConnectors] = useState(null);
+  const [showAmidaResult, setShowAmidaResult]  = useState(false);
+  const S = styles;
+
+  const picks      = gameState.championPicks || {};
+  const draftOrder = gameState.draftOrder || null;
+  const n          = gameState.players.length;
+  const locked     = isLocked(ALL_MATCHES[0].kickoff);
+  const seq        = getDraftSequence(n);
+  const totalPicks = gameState.players.reduce((s, p) => s + (picks[p]?.length || 0), 0);
+  const draftDone  = draftOrder && totalPicks >= seq.length;
+  const curIdx     = (draftOrder && !draftDone) ? seq[totalPicks] : -1;
+  const curPicker  = curIdx >= 0 ? draftOrder[curIdx] : null;
+  const allPicked  = Object.values(picks).flat();
+  const available  = TEAMS.filter(t => !allPicked.includes(t));
+  const isMyTurn   = curPicker === me && !locked && !isAdmin;
+
+  // 阿弥陀結果（順位→プレイヤー名の配列）
+  const amidaOrder = amidaConnectors ? (() => {
+    const o = new Array(n);
+    gameState.players.forEach((p, i) => { o[traceAmida(i, amidaConnectors)] = p; });
+    return o;
+  })() : null;
+
+  function drawAmida() {
+    setAmidaConnectors(generateAmidaConnectors(n));
+    setShowAmidaResult(false);
   }
 
   return (
     <div style={S.champWrap}>
       <h2 style={S.champTitle}>🏆 優勝国予想</h2>
-      <p style={S.champSub}>優勝すると思う国を2カ国選んでください</p>
       {locked && <p style={S.lockNote}>🔒 大会開幕のため変更できません</p>}
 
-      {/* 自分の選択 */}
-      {!isAdmin && (
-        <>
-          <div style={S.myPicksRow}>
-            {[0,1].map(i => (
-              <div key={i} style={{...S.myPickBox, ...(selected[i]?S.myPickBoxFilled:{})}}>
-                {selected[i] || `${i+1}カ国目`}
-              </div>
-            ))}
-          </div>
+      {/* ─ 阿弥陀くじセクション ─ */}
+      {!locked && (
+        <div style={S.amidaSection}>
+          <h3 style={S.champAllTitle}>🎯 阿弥陀くじ（選択順決め）</h3>
 
-          {/* 国一覧 */}
-          {!locked && (
-            <div style={S.teamGrid}>
-              {TEAMS.map(t => {
-                const isSel = selected.includes(t);
-                const disabled = !isSel && selected.length >= 2;
-                return (
-                  <button key={t}
-                    style={{...S.teamChip,
-                      ...(isSel ? S.teamChipSel : {}),
-                      ...(disabled ? S.teamChipDisabled : {})
-                    }}
-                    onClick={() => toggle(t)}>
-                    {t}
-                  </button>
-                );
-              })}
+          {draftOrder ? (
+            /* 確定済み */
+            <div>
+              <p style={{color:'#4ade80', fontSize:13, marginBottom:8}}>✅ 選択順が確定しています</p>
+              <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:10}}>
+                {draftOrder.map((p, i) => (
+                  <span key={i} style={{background:'#1e3a5f', color:'#93c5fd', padding:'4px 10px', borderRadius:10, fontSize:13}}>
+                    {i+1}番目: <strong>{p}</strong>
+                  </span>
+                ))}
+              </div>
+              {isAdmin && (
+                <button style={{...S.fetchBtn, background:'#7f1d1d', fontSize:12}}
+                  onClick={() => { if (window.confirm('阿弥陀くじをリセットしますか？\n選択済みの国も全てリセットされます。')) onSetDraftOrder(null); }}>
+                  🔄 阿弥陀くじをやり直す
+                </button>
+              )}
+            </div>
+          ) : !amidaConnectors ? (
+            /* まだ引いていない */
+            <div>
+              {isAdmin ? (
+                <button style={S.fetchBtn} onClick={drawAmida}>🎲 阿弥陀くじを引く</button>
+              ) : (
+                <p style={{color:'#fbbf24', fontSize:13}}>⏳ 管理者が阿弥陀くじを引くまでお待ちください</p>
+              )}
+            </div>
+          ) : (
+            /* 引いた後 */
+            <div>
+              <AmidaDisplay players={gameState.players} connectors={amidaConnectors} showResult={showAmidaResult} />
+              <div style={{display:'flex', gap:8, marginTop:10, flexWrap:'wrap'}}>
+                {!showAmidaResult ? (
+                  <button style={{...S.fetchBtn, flex:1}} onClick={() => setShowAmidaResult(true)}>👀 結果を見る</button>
+                ) : (
+                  <>
+                    <div style={{width:'100%', display:'flex', flexWrap:'wrap', gap:4, marginBottom:6}}>
+                      {amidaOrder.map((p, i) => (
+                        <span key={i} style={{background:'#1c1700', border:'1px solid #ffd700', color:'#ffd700', padding:'3px 10px', borderRadius:8, fontSize:12, fontWeight:700}}>
+                          {i+1}番目: {p}
+                        </span>
+                      ))}
+                    </div>
+                    {isAdmin && (
+                      <button style={{...S.fetchBtn, flex:1}} onClick={() => { onSetDraftOrder(amidaOrder); setAmidaConnectors(null); }}>
+                        ✅ この順番で確定
+                      </button>
+                    )}
+                    <button style={{...S.fetchBtn, background:'#374151', flex:1}} onClick={drawAmida}>🔄 引き直す</button>
+                  </>
+                )}
+              </div>
             </div>
           )}
-
-          {!locked && (
-            <button style={{...S.startBtn, marginTop:12,
-              opacity: selected.length===2 ? 1 : 0.4}}
-              onClick={save}>
-              💾 保存する（{selected.length}/2）
-            </button>
-          )}
-        </>
+        </div>
       )}
 
-      {/* 全員の予想一覧 */}
-      <div style={S.champAllWrap}>
-        <h3 style={S.champAllTitle}>📋 全員の優勝予想</h3>
-        {gameState.players.map(p => {
-          const pp = picks[p] || [];
-          return (
-            <div key={p} style={S.champRow}>
-              <span style={S.champName}>{p}</span>
-              <div style={S.champPicksRow}>
-                {pp.length ? pp.map(t => (
-                  <span key={t} style={S.champBadge}>{t}</span>
-                )) : <span style={S.noPred}>未入力</span>}
+      {/* ─ ドラフト進行中 ─ */}
+      {draftOrder && !draftDone && !locked && (
+        <div style={S.amidaSection}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+            <h3 style={{...S.champAllTitle, margin:0}}>🎴 ドラフト中（{totalPicks}/{seq.length}）</h3>
+            <button style={{...S.fetchBtn, background:'#374151', fontSize:11, padding:'4px 10px'}} onClick={onReloadState}>🔄 更新</button>
+          </div>
+
+          {/* 1→2→3→...→n→n→...→2→1 の順番表示 */}
+          <div style={{display:'flex', flexWrap:'wrap', gap:4, marginBottom:12}}>
+            {seq.map((posIdx, pickNum) => {
+              const isPast = pickNum < totalPicks;
+              const isCur  = pickNum === totalPicks;
+              const player = draftOrder[posIdx];
+              return (
+                <div key={pickNum} style={{
+                  textAlign:'center', padding:'5px 8px', borderRadius:8, fontSize:11, minWidth:52,
+                  background: isCur?'#1d4ed8':isPast?'#064e3b':'#1e293b',
+                  border: isCur?'1px solid #60a5fa':isPast?'1px solid #065f46':'1px solid #334155',
+                  color: isCur?'#fff':isPast?'#4ade80':'#64748b',
+                }}>
+                  <div style={{fontWeight:700, fontSize:10}}>{pickNum+1}回目</div>
+                  <div>{player}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {isMyTurn && (
+            <div>
+              <p style={{color:'#4ade80', fontWeight:700, marginBottom:8}}>✋ あなたの番です！1カ国選んでください</p>
+              <div style={S.teamGrid}>
+                {available.map(t => (
+                  <button key={t} style={S.teamChip} onClick={() => onDraftPick(t)}>{t}</button>
+                ))}
               </div>
             </div>
-          );
-        })}
+          )}
+          {!isMyTurn && !isAdmin && curPicker && (
+            <p style={{color:'#94a3b8', fontSize:13, textAlign:'center', padding:12}}>
+              ⏳ {curPicker}さんが選択中... 「更新」ボタンで最新状態を確認できます
+            </p>
+          )}
+          {isAdmin && curPicker && (
+            <p style={{color:'#fbbf24', fontSize:13}}>⏳ {curPicker}さんの番です</p>
+          )}
+        </div>
+      )}
+
+      {/* ─ 全員の予想一覧 ─ */}
+      <div style={S.champAllWrap}>
+        <h3 style={S.champAllTitle}>
+          {draftDone ? '✅ 全員の優勝予想（確定）' : '📋 全員の優勝予想'}
+        </h3>
+        {gameState.players.map(p => (
+          <div key={p} style={S.champRow}>
+            <span style={S.champName}>{p}</span>
+            <div style={S.champPicksRow}>
+              {(picks[p]||[]).length
+                ? (picks[p]||[]).map(t => <span key={t} style={S.champBadge}>{t}</span>)
+                : <span style={S.noPred}>未選択</span>}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1113,7 +1271,8 @@ const styles = {
   teamChip:        { padding:'6px 12px', borderRadius:20, border:'1px solid #334155', background:'#1e293b', color:'#cbd5e1', cursor:'pointer', fontSize:13 },
   teamChipSel:     { background:'#1d4ed8', borderColor:'#3b82f6', color:'#fff', fontWeight:700 },
   teamChipDisabled:{ opacity:0.35, cursor:'default' },
-  champAllWrap:    { marginTop:20, background:'#1e293b', borderRadius:12, padding:14 },
+  amidaSection:    { background:'#1e293b', borderRadius:12, padding:14, marginBottom:12 },
+  champAllWrap:    { marginTop:12, background:'#1e293b', borderRadius:12, padding:14 },
   champAllTitle:   { fontSize:15, fontWeight:600, color:'#e2e8f0', marginBottom:12 },
   champRow:        { display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid #0f172a' },
   champName:       { color:'#94a3b8', fontSize:13, width:80, flexShrink:0 },
