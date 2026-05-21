@@ -228,22 +228,42 @@ export default function App() {
     else if (saved) { setMe(saved); }
   }, []);
 
+  // localStorageにプレイヤー情報をバックアップ
+  function backupPlayers(players, passwords) {
+    localStorage.setItem('wc2026_players', JSON.stringify(players || []));
+    localStorage.setItem('wc2026_passwords', JSON.stringify(passwords || {}));
+  }
+
+  // localStorageからプレイヤー情報を復元
+  function restorePlayers() {
+    try {
+      const players = JSON.parse(localStorage.getItem('wc2026_players') || '[]');
+      const passwords = JSON.parse(localStorage.getItem('wc2026_passwords') || '{}');
+      return { players, passwords };
+    } catch { return { players: [], passwords: {} }; }
+  }
+
   async function loadState() {
     setLoading(true);
     try {
       const res = await fetch('/api/game-state');
       const data = await res.json();
-      if (data && data.players) {
+      if (data && data.players && data.players.length > 0) {
         setGameState(data);
-        // デフォルト日付：最初の試合日
+        backupPlayers(data.players, data.playerPasswords); // localStorageにもバックアップ
         const firstDate = fmtDate(ALL_MATCHES[0].kickoff);
         setSelDate(data.selDate || firstDate);
       } else {
-        // 初回：セットアップ画面
-        setGameState({ players: [], matches: initMatches(), carryover: 0 });
+        // Vercel Blobが空 → localStorageのバックアップを確認
+        const { players, passwords } = restorePlayers();
+        setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
+        setSelDate(fmtDate(ALL_MATCHES[0].kickoff));
       }
     } catch {
-      setGameState({ players: [], matches: initMatches(), carryover: 0 });
+      // 通信エラー時もlocalStorageから復元
+      const { players, passwords } = restorePlayers();
+      setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
+      setSelDate(fmtDate(ALL_MATCHES[0].kickoff));
     }
     setLoading(false);
   }
@@ -297,12 +317,15 @@ export default function App() {
         else alert('パスワードが違います');
       }}
       onSetup={(players) => {
+        backupPlayers(players, {}); // localStorageにバックアップ
         const ns = { ...gameState, players, matches: initMatches(), carryover: 0 };
         setGameState(ns);
         saveState(ns);
       }}
       onSavePassword={(player, password) => {
-        const ns = { ...gameState, playerPasswords: { ...(gameState.playerPasswords||{}), [player]: password } };
+        const newPasswords = { ...(gameState.playerPasswords||{}), [player]: password };
+        backupPlayers(gameState.players, newPasswords); // localStorageにバックアップ
+        const ns = { ...gameState, playerPasswords: newPasswords };
         setGameState(ns);
         saveState(ns);
       }}
