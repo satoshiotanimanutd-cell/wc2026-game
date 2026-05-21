@@ -1,4 +1,4 @@
-import { list, put, del, download } from '@vercel/blob';
+import { list, put, del, get } from '@vercel/blob';
 
 const PREFIX = 'wc2026-game-state';
 
@@ -16,9 +16,12 @@ export async function GET() {
         },
       });
     }
-    // privateストアはdownload()でサーバー側認証を使って取得
-    const res = await download(blobs[0].url);
-    const data = await res.json();
+    // v2.4.0: get()でprivateブロブを取得（accessはストアの種別に合わせる）
+    const result = await get(blobs[0].url, { access: 'private' });
+    if (!result || !result.stream) {
+      throw new Error('blob not found or empty');
+    }
+    const data = await new Response(result.stream).json();
     return new Response(JSON.stringify(data), {
       headers: {
         'Content-Type': 'application/json',
@@ -37,12 +40,13 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    // 既存ファイルを全削除してから新規保存（privateストア対応）
+    // v2.4.0: putにaccessパラメータ不要（ストア設定で自動決定）
     const { blobs } = await list({ prefix: PREFIX });
     await Promise.allSettled(blobs.map(b => del(b.url)));
     await put(`${PREFIX}.json`, JSON.stringify(body), {
-      access: 'private',
       contentType: 'application/json',
+      addRandomSuffix: false,
+      allowOverwrite: true,
     });
     return new Response(JSON.stringify({ ok: true }), {
       headers: {
