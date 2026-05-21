@@ -665,6 +665,25 @@ export default function App() {
             setGameState(ns);
             saveState(ns);
           }}
+          onUpdateState={async (patch) => {
+            const ns = { ...gameState, ...patch };
+            setGameState(ns);
+            const ok = await saveState(ns);
+            if (ok) setMsg('✅ 保存しました');
+          }}
+          onReload={async () => {
+            try {
+              const res = await fetch('/api/game-state');
+              const data = await res.json();
+              if (data && data.players) {
+                setGameState(data);
+                backupPlayers(data.players, data.playerPasswords);
+                setMsg('✅ サーバーから再読み込みしました');
+              } else {
+                setMsg('⚠️ サーバーにデータがありません（プレイヤー未登録の状態）');
+              }
+            } catch (e) { setMsg('⚠️ 読み込みエラー: ' + e.message); }
+          }}
         />
       )}
     </div>
@@ -1079,17 +1098,111 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 }
 
 // ─── 管理者ビュー ──────────────────────────────────────────
-function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers }) {
+function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload }) {
   const [adminDate, setAdminDate] = useState(fmtDate(ALL_MATCHES[0].kickoff));
   const [newNames, setNewNames]   = useState(['','','','','']);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [showRaw, setShowRaw]     = useState(false);
   const S = styles;
   const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
   const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
+  const passwords = gameState.playerPasswords || {};
+  const champPicks = gameState.championPicks || {};
 
   return (
     <div style={S.adminWrap}>
       <h2 style={S.adminTitle}>🔐 管理者パネル</h2>
+
+      {/* ─ データ管理 ─ */}
+      <div style={S.adminSection}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+          <h3 style={{...S.sectionTitle, margin:0}}>🗄️ データ管理</h3>
+          <button style={{...S.fetchBtn, fontSize:12, padding:'5px 12px'}} onClick={onReload}>
+            🔄 サーバーから再読み込み
+          </button>
+        </div>
+
+        {/* パスワード管理 */}
+        <p style={{color:'#fbbf24', fontSize:12, fontWeight:700, marginBottom:6}}>🔐 パスワード</p>
+        <div style={{marginBottom:12}}>
+          {gameState.players.length === 0 ? (
+            <p style={{color:'#64748b', fontSize:12}}>プレイヤー未登録</p>
+          ) : gameState.players.map(p => (
+            <div key={p} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #1e293b'}}>
+              <span style={{color:'#e2e8f0', fontSize:13}}>{p}
+                <span style={{marginLeft:8, fontSize:11, color: passwords[p] ? '#4ade80' : '#64748b'}}>
+                  {passwords[p] ? '🔒 設定済み' : '未設定'}
+                </span>
+              </span>
+              {passwords[p] && (
+                <button style={{background:'#7f1d1d', color:'#fca5a5', border:'none', borderRadius:6, padding:'3px 8px', fontSize:11, cursor:'pointer'}}
+                  onClick={() => {
+                    const pw = { ...passwords };
+                    delete pw[p];
+                    onUpdateState({ playerPasswords: pw });
+                  }}>
+                  リセット
+                </button>
+              )}
+            </div>
+          ))}
+          {gameState.players.some(p => passwords[p]) && (
+            <button style={{...S.fetchBtn, background:'#7f1d1d', fontSize:11, marginTop:8}}
+              onClick={() => onUpdateState({ playerPasswords: {} })}>
+              全員のパスワードをリセット
+            </button>
+          )}
+        </div>
+
+        {/* 優勝予想管理 */}
+        <p style={{color:'#fbbf24', fontSize:12, fontWeight:700, marginBottom:6}}>🏆 優勝予想</p>
+        <div style={{marginBottom:12}}>
+          {gameState.players.length === 0 ? (
+            <p style={{color:'#64748b', fontSize:12}}>プレイヤー未登録</p>
+          ) : gameState.players.map(p => {
+            const picks = champPicks[p] || [];
+            return (
+              <div key={p} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #1e293b'}}>
+                <span style={{color:'#e2e8f0', fontSize:13}}>{p}
+                  <span style={{marginLeft:8, fontSize:11, color: picks.length ? '#4ade80' : '#64748b'}}>
+                    {picks.length ? picks.join('・') : '未選択'}
+                  </span>
+                </span>
+                {picks.length > 0 && (
+                  <button style={{background:'#7f1d1d', color:'#fca5a5', border:'none', borderRadius:6, padding:'3px 8px', fontSize:11, cursor:'pointer'}}
+                    onClick={() => onUpdateState({ championPicks: { ...champPicks, [p]: [] } })}>
+                    リセット
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {Object.values(champPicks).some(v => v?.length > 0) && (
+            <button style={{...S.fetchBtn, background:'#7f1d1d', fontSize:11, marginTop:8}}
+              onClick={() => onUpdateState({ championPicks: {} })}>
+              全員の優勝予想をリセット
+            </button>
+          )}
+        </div>
+
+        {/* 生データ確認 */}
+        <button style={{background:'transparent', border:'1px solid #334155', color:'#64748b', borderRadius:8, padding:'5px 12px', fontSize:11, cursor:'pointer', width:'100%'}}
+          onClick={() => setShowRaw(o => !o)}>
+          {showRaw ? '▲ 生データを隠す' : '▼ 生データを確認する（デバッグ用）'}
+        </button>
+        {showRaw && (
+          <pre style={{background:'#020617', color:'#94a3b8', fontSize:10, padding:10, borderRadius:8, marginTop:8, overflowX:'auto', maxHeight:200, overflowY:'auto'}}>
+            {JSON.stringify({
+              players: gameState.players,
+              playerPasswords: Object.fromEntries(Object.entries(passwords).map(([k,v]) => [k, v ? '(設定済み)' : null])),
+              championPicks: champPicks,
+              draftOrder: gameState.draftOrder,
+              carryover: gameState.carryover,
+              matchCount: gameState.matches?.length,
+            }, null, 2)}
+          </pre>
+        )}
+      </div>
 
       {/* プレイヤー管理 */}
       <div style={S.adminSection}>
