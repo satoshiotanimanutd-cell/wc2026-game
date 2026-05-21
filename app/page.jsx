@@ -281,6 +281,11 @@ export default function App() {
     return calcPoints(gameState.matches, gameState.players);
   }, [gameState]);
 
+  // ─ データ読み込み中（localStorage復元直後など） ─
+  if (loading || !gameState) {
+    return <div style={styles.center}>読み込み中...</div>;
+  }
+
   // ─ ログイン画面 ─
   if (!me && !isAdmin) {
     return <LoginScreen
