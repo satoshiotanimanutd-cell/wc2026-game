@@ -1,4 +1,4 @@
-import { list, put, del, download } from '@vercel/blob';
+import { list, put, del } from '@vercel/blob';
 
 const PREFIX = 'wc2026-game-state';
 
@@ -16,8 +16,8 @@ export async function GET() {
         },
       });
     }
-    // プライベートBlobはdownload()で取得（認証自動付与）
-    const res = await download(blobs[0].url);
+    // タイムスタンプ付きでCDNキャッシュをバイパス
+    const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
     return new Response(JSON.stringify(data), {
       headers: {
@@ -41,8 +41,9 @@ export async function POST(request) {
     // 既存ファイルの削除（失敗しても続行）
     await Promise.allSettled(blobs.map(b => del(b.url)));
     const putResult = await put(`${PREFIX}.json`, JSON.stringify(body), {
-      access: 'private',
+      access: 'public',
       contentType: 'application/json',
+      addRandomSuffix: false,
     });
     if (!putResult?.url) {
       return new Response(JSON.stringify({ error: 'put failed: no url returned' }), {
