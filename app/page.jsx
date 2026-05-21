@@ -292,6 +292,11 @@ export default function App() {
         setGameState(ns);
         saveState(ns);
       }}
+      onSavePassword={(player, password) => {
+        const ns = { ...gameState, playerPasswords: { ...(gameState.playerPasswords||{}), [player]: password } };
+        setGameState(ns);
+        saveState(ns);
+      }}
       loading={loading}
     />;
   }
@@ -674,12 +679,18 @@ function RulesSection({ S }) {
 }
 
 // ─── ログイン画面 ──────────────────────────────────────────
-function LoginScreen({ gameState, onLogin, onAdmin, onSetup, loading }) {
-  const [names, setNames] = useState(['','','','','']);
+function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loading }) {
+  const [names, setNames]       = useState(['','','','','']);
+  const [step, setStep]         = useState('select'); // select | setpw | enterpw
+  const [selPlayer, setSelPlayer] = useState(null);
+  const [pw, setPw]             = useState('');
+  const [pw2, setPw2]           = useState('');
+  const [err, setErr]           = useState('');
   const S = styles;
 
   if (loading) return <div style={S.center}>読み込み中...</div>;
 
+  // ─ 初回セットアップ ─
   if (!gameState?.players?.length) {
     return (
       <div style={S.loginBox}>
@@ -690,21 +701,92 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, loading }) {
           <input key={i} style={S.nameInput} placeholder={`プレイヤー${i+1}`}
             value={n} onChange={e => { const a=[...names]; a[i]=e.target.value; setNames(a); }} />
         ))}
-        <button style={S.startBtn}
-          onClick={() => onSetup(names.filter(n=>n.trim()))}>
+        <button style={S.startBtn} onClick={() => onSetup(names.filter(n=>n.trim()))}>
           ゲームスタート 🚀
         </button>
       </div>
     );
   }
 
+  const passwords = gameState.playerPasswords || {};
+
+  // ─ パスワード設定画面（初回） ─
+  if (step === 'setpw') {
+    return (
+      <div style={S.loginBox}>
+        <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+        <p style={S.loginSub}>「{selPlayer}」のパスワードを設定してください</p>
+        <p style={{color:'#94a3b8', fontSize:12, textAlign:'center'}}>※ 次回ログイン時に必要になります</p>
+        <input type="password" style={S.nameInput} placeholder="パスワードを入力"
+          value={pw} onChange={e => { setPw(e.target.value); setErr(''); }} />
+        <input type="password" style={S.nameInput} placeholder="もう一度入力"
+          value={pw2} onChange={e => { setPw2(e.target.value); setErr(''); }} />
+        {err && <p style={S.errMsg}>{err}</p>}
+        <button style={S.startBtn} onClick={() => {
+          if (!pw) return setErr('パスワードを入力してください');
+          if (pw !== pw2) return setErr('パスワードが一致しません');
+          onSavePassword(selPlayer, pw);
+          onLogin(selPlayer);
+        }}>
+          設定してログイン 🚀
+        </button>
+        <button style={S.backBtn} onClick={() => { setStep('select'); setPw(''); setPw2(''); setErr(''); }}>
+          ← 戻る
+        </button>
+      </div>
+    );
+  }
+
+  // ─ パスワード入力画面（2回目以降） ─
+  if (step === 'enterpw') {
+    return (
+      <div style={S.loginBox}>
+        <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+        <p style={S.loginSub}>「{selPlayer}」のパスワードを入力してください</p>
+        <input type="password" style={S.nameInput} placeholder="パスワード"
+          value={pw} onChange={e => { setPw(e.target.value); setErr(''); }}
+          onKeyDown={e => { if (e.key === 'Enter') doLogin(); }} />
+        {err && <p style={S.errMsg}>{err}</p>}
+        <button style={S.startBtn} onClick={doLogin}>ログイン</button>
+        <button style={S.backBtn} onClick={() => { setStep('select'); setPw(''); setErr(''); }}>
+          ← 戻る
+        </button>
+      </div>
+    );
+  }
+
+  function doLogin() {
+    if (pw === passwords[selPlayer]) {
+      onLogin(selPlayer);
+    } else {
+      setErr('パスワードが違います');
+      setPw('');
+    }
+  }
+
+  function handleSelect(p) {
+    setSelPlayer(p);
+    setPw(''); setPw2(''); setErr('');
+    if (!passwords[p]) {
+      setStep('setpw');   // 初回：パスワード設定
+    } else {
+      setStep('enterpw'); // 2回目以降：パスワード入力
+    }
+  }
+
+  // ─ プレイヤー選択画面 ─
   return (
     <div style={S.loginBox}>
       <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
       <RulesSection S={S} />
       <p style={S.loginSub}>あなたは誰ですか？</p>
       {gameState.players.map(p => (
-        <button key={p} style={S.playerBtn} onClick={() => onLogin(p)}>{p}</button>
+        <button key={p} style={S.playerBtn} onClick={() => handleSelect(p)}>
+          {p}
+          <span style={{fontSize:11, color: passwords[p] ? '#4ade80' : '#f59e0b', marginLeft:8}}>
+            {passwords[p] ? '🔒' : '🔓 初回設定'}
+          </span>
+        </button>
       ))}
       <button style={S.adminBtn} onClick={onAdmin}>🔐 管理者としてログイン</button>
     </div>
@@ -878,6 +960,8 @@ const styles = {
   startBtn:   { padding:'12px', borderRadius:10, background:'#1d4ed8', color:'#fff', border:'none', cursor:'pointer', fontSize:16, fontWeight:700, marginTop:8 },
   playerBtn:  { padding:'14px', borderRadius:10, background:'#1e3a5f', color:'#93c5fd', border:'1px solid #1d4ed8', cursor:'pointer', fontSize:16, fontWeight:600 },
   adminBtn:   { padding:'10px', borderRadius:10, background:'#3b0764', color:'#c4b5fd', border:'1px solid #7c3aed', cursor:'pointer', fontSize:14, marginTop:8 },
+  errMsg:     { color:'#f87171', fontSize:13, textAlign:'center', margin:0 },
+  backBtn:    { padding:'8px', borderRadius:10, background:'transparent', color:'#94a3b8', border:'1px solid #334155', cursor:'pointer', fontSize:14 },
   center:     { display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', color:'#aaa' },
   champWrap:       { padding:16 },
   champTitle:      { fontSize:20, fontWeight:700, color:'#ffd700', textAlign:'center', marginBottom:4 },
