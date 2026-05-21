@@ -503,6 +503,41 @@ export default function App() {
   );
 }
 
+// ─── ルール表示コンポーネント ─────────────────────────────
+function RulesSection({ S }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={S.rulesWrap}>
+      <button style={S.rulesToggle} onClick={() => setOpen(o => !o)}>
+        📋 ゲームルール {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <div style={S.rulesBody}>
+          <p style={S.rulesHeading}>⚽ 勝敗予想</p>
+          <ul style={S.rulesList}>
+            <li>各試合、全員が <strong>1,000pt</strong> を自動的に賭ける</li>
+            <li>的中者が全員分のポイントを総取り（複数いれば山分け）</li>
+            <li>誰も当たらなければ全員が -1,000pt</li>
+          </ul>
+          <p style={S.rulesHeading}>🎯 スコア予想</p>
+          <ul style={S.rulesList}>
+            <li>各試合、全員が <strong>500pt</strong> を自動的に賭ける</li>
+            <li>○対○の完全一致が的中（点差ではなく正確なスコア）</li>
+            <li>的中者がポイントを総取り（複数いれば山分け）</li>
+            <li>誰も当たらなければ <strong>🔥キャリーオーバー</strong>！次の的中者が積み上げ分も総取り</li>
+          </ul>
+          <p style={S.rulesHeading}>📌 その他</p>
+          <ul style={S.rulesList}>
+            <li>開始時のポイントは <strong>0pt</strong>（マイナスになる場合あり）</li>
+            <li>キックオフ時刻になると自動で予想が締め切られる</li>
+            <li>締め切り後は他のプレイヤーの予想が見られる</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ログイン画面 ──────────────────────────────────────────
 function LoginScreen({ gameState, onLogin, onAdmin, onSetup, loading }) {
   const [names, setNames] = useState(['','','','','']);
@@ -514,6 +549,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, loading }) {
     return (
       <div style={S.loginBox}>
         <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+        <RulesSection S={S} />
         <p style={S.loginSub}>参加者の名前を入力してください（最大5人）</p>
         {names.map((n,i) => (
           <input key={i} style={S.nameInput} placeholder={`プレイヤー${i+1}`}
@@ -530,6 +566,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, loading }) {
   return (
     <div style={S.loginBox}>
       <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+      <RulesSection S={S} />
       <p style={S.loginSub}>あなたは誰ですか？</p>
       {gameState.players.map(p => (
         <button key={p} style={S.playerBtn} onClick={() => onLogin(p)}>{p}</button>
@@ -707,6 +744,11 @@ const styles = {
   playerBtn:  { padding:'14px', borderRadius:10, background:'#1e3a5f', color:'#93c5fd', border:'1px solid #1d4ed8', cursor:'pointer', fontSize:16, fontWeight:600 },
   adminBtn:   { padding:'10px', borderRadius:10, background:'#3b0764', color:'#c4b5fd', border:'1px solid #7c3aed', cursor:'pointer', fontSize:14, marginTop:8 },
   center:     { display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', color:'#aaa' },
+  rulesWrap:  { background:'#0f172a', borderRadius:10, overflow:'hidden', border:'1px solid #1e3a5f' },
+  rulesToggle:{ width:'100%', padding:'10px 14px', background:'transparent', border:'none', color:'#93c5fd', cursor:'pointer', fontSize:14, fontWeight:600, textAlign:'left' },
+  rulesBody:  { padding:'0 14px 14px' },
+  rulesHeading:{ color:'#fbbf24', fontWeight:700, fontSize:13, margin:'10px 0 4px' },
+  rulesList:  { color:'#cbd5e1', fontSize:12, lineHeight:1.7, paddingLeft:16, margin:0 },
   adminWrap:  { padding:16 },
   adminTitle: { fontSize:20, fontWeight:700, color:'#c4b5fd', marginBottom:16, textAlign:'center' },
   adminSection:{ background:'#1e293b', borderRadius:12, padding:16, marginBottom:12 },
