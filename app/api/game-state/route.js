@@ -2,15 +2,35 @@ import { list, put, del } from '@vercel/blob';
 
 const PREFIX = 'wc2026-game-state';
 
+export const dynamic = 'force-dynamic'; // Next.jsのキャッシュを無効化
+
 export async function GET() {
   try {
     const { blobs } = await list({ prefix: PREFIX });
-    if (!blobs.length) return Response.json(null);
-    const res = await fetch(blobs[0].url, { cache: 'no-store' });
+    if (!blobs.length) {
+      return new Response(JSON.stringify(null), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+        },
+      });
+    }
+    // CDNキャッシュをバイパスするためタイムスタンプを付加
+    const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
-    return Response.json(data);
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+      },
+    });
   } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 });
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
 
@@ -23,8 +43,16 @@ export async function POST(request) {
       access: 'public',
       contentType: 'application/json',
     });
-    return Response.json({ ok: true });
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
+    });
   } catch (e) {
-    return Response.json({ error: e.message }, { status: 500 });
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

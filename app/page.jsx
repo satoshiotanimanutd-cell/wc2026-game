@@ -330,19 +330,31 @@ export default function App() {
   }
 
   // ─ プレイヤー未登録時：5秒ごとにサーバーを自動確認 ─
+  const [pollStatus, setPollStatus] = useState('');
+
+  async function checkServerPlayers() {
+    setPollStatus('確認中...');
+    try {
+      const res = await fetch('/api/game-state?' + Date.now()); // キャッシュバイパス
+      const data = await res.json();
+      if (data && data.players && data.players.length > 0) {
+        setGameState(data);
+        backupPlayers(data.players, data.playerPasswords);
+        setSelDate(data.selDate || fmtDate(ALL_MATCHES[0].kickoff));
+        setPollStatus('');
+      } else {
+        const now = new Date();
+        setPollStatus(`最終確認: ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')} — 未登録`);
+      }
+    } catch (e) {
+      setPollStatus('確認エラー: ' + e.message);
+    }
+  }
+
   useEffect(() => {
     if (!gameState || gameState.players.length > 0 || isAdmin) return;
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch('/api/game-state');
-        const data = await res.json();
-        if (data && data.players && data.players.length > 0) {
-          setGameState(data);
-          backupPlayers(data.players, data.playerPasswords);
-          setSelDate(data.selDate || fmtDate(ALL_MATCHES[0].kickoff));
-        }
-      } catch {}
-    }, 5000);
+    checkServerPlayers(); // 即座に1回確認
+    const timer = setInterval(checkServerPlayers, 5000);
     return () => clearInterval(timer);
   }, [gameState?.players?.length, isAdmin]);
 
@@ -372,6 +384,8 @@ export default function App() {
   if (!me && !isAdmin) {
     return <LoginScreen
       gameState={gameState}
+      pollStatus={pollStatus}
+      onManualCheck={checkServerPlayers}
       onLogin={(name) => { setMe(name); localStorage.setItem('wc2026_player', name); }}
       onAdmin={() => {
         const pw = prompt('管理者パスワードを入力してください:');
@@ -974,7 +988,7 @@ function RulesSection({ S }) {
 }
 
 // ─── ログイン画面 ──────────────────────────────────────────
-function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loading }) {
+function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loading, pollStatus, onManualCheck }) {
   const [names, setNames]       = useState(['','','','','']);
   const [step, setStep]         = useState('select'); // select | setpw | enterpw
   const [selPlayer, setSelPlayer] = useState(null);
@@ -995,16 +1009,28 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
         <div style={{background:'#0f172a', borderRadius:10, padding:16, textAlign:'center'}}>
           <p style={{color:'#fbbf24', fontWeight:700, marginBottom:6}}>⏳ 準備中</p>
           <p style={{color:'#94a3b8', fontSize:13, marginBottom:10}}>管理者がプレイヤーを登録するまでお待ちください</p>
-          <p style={{color:'#64748b', fontSize:11}}>登録済みなのにこの画面が出る場合 ↓</p>
-          <button style={{background:'transparent', border:'1px solid #334155', color:'#64748b', borderRadius:8, padding:'6px 14px', fontSize:12, cursor:'pointer', marginTop:4}}
-            onClick={() => {
-              localStorage.removeItem('wc2026_players');
-              localStorage.removeItem('wc2026_passwords');
-              localStorage.removeItem('wc2026_player');
-              window.location.reload();
-            }}>
-            🔄 このブラウザのキャッシュをリセット
+          <p style={{color:'#475569', fontSize:11, marginBottom:6}}>5秒ごとに自動確認しています</p>
+          {pollStatus && (
+            <p style={{color: pollStatus.includes('エラー') ? '#f87171' : '#64748b', fontSize:11, marginBottom:6}}>
+              {pollStatus}
+            </p>
+          )}
+          <button style={{background:'#1d4ed8', color:'#fff', border:'none', borderRadius:8, padding:'7px 16px', fontSize:13, cursor:'pointer', marginBottom:10}}
+            onClick={onManualCheck}>
+            🔍 今すぐ確認する
           </button>
+          <div style={{borderTop:'1px solid #1e293b', paddingTop:10, marginTop:4}}>
+            <p style={{color:'#475569', fontSize:11, marginBottom:4}}>↓ それでも変わらない場合</p>
+            <button style={{background:'transparent', border:'1px solid #334155', color:'#64748b', borderRadius:8, padding:'5px 12px', fontSize:11, cursor:'pointer'}}
+              onClick={() => {
+                localStorage.removeItem('wc2026_players');
+                localStorage.removeItem('wc2026_passwords');
+                localStorage.removeItem('wc2026_player');
+                window.location.reload();
+              }}>
+              🗑️ ブラウザのキャッシュをリセット
+            </button>
+          </div>
         </div>
         <button style={S.adminBtn} onClick={onAdmin}>🔐 管理者ログイン</button>
       </div>
