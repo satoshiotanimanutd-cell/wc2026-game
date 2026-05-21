@@ -643,6 +643,46 @@ function ChampionView({ gameState, me, isAdmin, onSave }) {
   );
 }
 
+// ─── 使い方コンポーネント ─────────────────────────────────
+function UsageSection({ S }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={S.rulesWrap}>
+      <button style={S.rulesToggle} onClick={() => setOpen(o => !o)}>
+        📖 使い方 {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <div style={S.rulesBody}>
+          <p style={S.rulesHeading}>🔑 ログイン</p>
+          <ul style={S.rulesList}>
+            <li>自分の名前をタップする</li>
+            <li><strong>初回のみ</strong>：パスワードを自分で設定する（次回から必要）</li>
+            <li>2回目以降：設定したパスワードを入力してログイン</li>
+          </ul>
+          <p style={S.rulesHeading}>📅 試合予想</p>
+          <ul style={S.rulesList}>
+            <li>上部の日付タブで日を切り替える</li>
+            <li>各試合で <strong>勝敗（ホーム勝ち / 引き分け / アウェイ勝ち）</strong> を選ぶ</li>
+            <li>さらに <strong>スコア（例：2-1）</strong> を入力する</li>
+            <li>キックオフ時刻になると自動で締め切られる</li>
+          </ul>
+          <p style={S.rulesHeading}>🏆 優勝予想</p>
+          <ul style={S.rulesList}>
+            <li>上部ナビの「優勝予想」を開く</li>
+            <li>優勝すると思う国を <strong>2カ国</strong> 選んで保存する</li>
+            <li>大会開幕（6/12 キックオフ）以降は変更不可</li>
+          </ul>
+          <p style={S.rulesHeading}>🏅 ランキング</p>
+          <ul style={S.rulesList}>
+            <li>上部ナビの「ランキング」でリアルタイム順位を確認できる</li>
+            <li>試合結果が入力されると自動でポイントが更新される</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ルール表示コンポーネント ─────────────────────────────
 function RulesSection({ S }) {
   const [open, setOpen] = useState(false);
@@ -695,6 +735,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
     return (
       <div style={S.loginBox}>
         <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+        <UsageSection S={S} />
         <RulesSection S={S} />
         <p style={S.loginSub}>参加者の名前を入力してください（最大5人）</p>
         {names.map((n,i) => (
@@ -778,6 +819,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
   return (
     <div style={S.loginBox}>
       <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
+      <UsageSection S={S} />
       <RulesSection S={S} />
       <p style={S.loginSub}>あなたは誰ですか？</p>
       {gameState.players.map(p => (
