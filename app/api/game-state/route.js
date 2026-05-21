@@ -43,7 +43,6 @@ export async function POST(request) {
     const putResult = await put(`${PREFIX}.json`, JSON.stringify(body), {
       access: 'private',
       contentType: 'application/json',
-      allowOverwrite: true,
     });
     if (!putResult?.url) {
       return new Response(JSON.stringify({ error: 'put failed: no url returned' }), {
