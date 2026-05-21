@@ -323,7 +323,11 @@ export default function App() {
         body: JSON.stringify(newState),
       });
       if (res.ok) { success = true; }
-      else { setMsg('⚠️ 保存に失敗しました（サーバーエラー）'); }
+      else {
+        let errDetail = '';
+        try { const errBody = await res.json(); errDetail = errBody.error || ''; } catch {}
+        setMsg(`⚠️ 保存に失敗しました（${res.status}${errDetail ? ': ' + errDetail : ''}）`);
+      }
     } catch (e) { setMsg('⚠️ 保存に失敗しました: ' + e.message); }
     setSaving(false);
     return success;

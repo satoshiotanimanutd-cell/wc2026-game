@@ -38,11 +38,19 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const { blobs } = await list({ prefix: PREFIX });
-    await Promise.all(blobs.map(b => del(b.url)));
-    await put(`${PREFIX}.json`, JSON.stringify(body), {
+    // 既存ファイルの削除（失敗しても続行）
+    await Promise.allSettled(blobs.map(b => del(b.url)));
+    const putResult = await put(`${PREFIX}.json`, JSON.stringify(body), {
       access: 'public',
       contentType: 'application/json',
+      allowOverwrite: true,
     });
+    if (!putResult?.url) {
+      return new Response(JSON.stringify({ error: 'put failed: no url returned' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     return new Response(JSON.stringify({ ok: true }), {
       headers: {
         'Content-Type': 'application/json',
