@@ -119,6 +119,34 @@ const BET_RESULT = 1000;
 const BET_SCORE  = 500;
 const ADMIN_PW   = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '4818';
 
+// ─── 出場48カ国 ───────────────────────────────────────────
+const TEAMS = [
+  // グループA
+  'メキシコ','南アフリカ','韓国','チェコ',
+  // グループB
+  'カナダ','ボスニア・ヘルツェゴビナ','カタール','スイス',
+  // グループC
+  'ブラジル','モロッコ','ハイチ','スコットランド',
+  // グループD
+  'アメリカ','パラグアイ','オーストラリア','トルコ',
+  // グループE
+  'ドイツ','キュラソー','コートジボワール','エクアドル',
+  // グループF
+  'オランダ','日本','スウェーデン','チュニジア',
+  // グループG
+  'ベルギー','エジプト','イラン','ニュージーランド',
+  // グループH
+  'スペイン','カーボベルデ','サウジアラビア','ウルグアイ',
+  // グループI
+  'フランス','セネガル','イラク','ノルウェー',
+  // グループJ
+  'アルゼンチン','アルジェリア','オーストリア','ヨルダン',
+  // グループK
+  'ポルトガル','コンゴDR','ウズベキスタン','コロンビア',
+  // グループL
+  'イングランド','クロアチア','ガーナ','パナマ',
+].sort((a, b) => a.localeCompare(b, 'ja'));
+
 function fmtDate(iso) {
   const d = new Date(iso);
   return `${d.getMonth()+1}/${d.getDate()}`;
@@ -349,10 +377,10 @@ export default function App() {
 
       {/* ナビ */}
       <div style={S.nav}>
-        {['matches','ranking'].map(v => (
+        {['matches','champion','ranking'].map(v => (
           <button key={v} style={{...S.navBtn, ...(view===v?S.navActive:{})}}
             onClick={() => setView(v)}>
-            {v==='matches'?'📅 試合':'🏅 ランキング'}
+            {v==='matches'?'📅 試合':v==='champion'?'🏆 優勝予想':'🏅 ランキング'}
           </button>
         ))}
         {isAdmin && (
@@ -470,6 +498,20 @@ export default function App() {
         </div>
       )}
 
+      {/* ─ 優勝予想 ─ */}
+      {view === 'champion' && (
+        <ChampionView
+          gameState={gameState}
+          me={me}
+          isAdmin={isAdmin}
+          onSave={(picks) => {
+            const ns = { ...gameState, championPicks: { ...(gameState.championPicks||{}), [me]: picks } };
+            setGameState(ns);
+            saveState(ns);
+          }}
+        />
+      )}
+
       {/* ─ ランキング ─ */}
       {view === 'ranking' && (
         <div style={S.ranking}>
@@ -499,6 +541,99 @@ export default function App() {
           co={co}
         />
       )}
+    </div>
+  );
+}
+
+// ─── 優勝予想コンポーネント ───────────────────────────────
+function ChampionView({ gameState, me, isAdmin, onSave }) {
+  const picks = gameState.championPicks || {};
+  const myPicks = picks[me] || [];
+  const [selected, setSelected] = useState(myPicks);
+  const S = styles;
+
+  // 開幕前のみ変更可（最初の試合キックオフ前）
+  const locked = isLocked(ALL_MATCHES[0].kickoff);
+
+  function toggle(team) {
+    if (locked) return;
+    setSelected(prev => {
+      if (prev.includes(team)) return prev.filter(t => t !== team);
+      if (prev.length >= 2) return prev;
+      return [...prev, team];
+    });
+  }
+
+  function save() {
+    if (selected.length !== 2) return alert('2カ国選んでください');
+    onSave(selected);
+    alert('✅ 優勝予想を保存しました！');
+  }
+
+  return (
+    <div style={S.champWrap}>
+      <h2 style={S.champTitle}>🏆 優勝国予想</h2>
+      <p style={S.champSub}>優勝すると思う国を2カ国選んでください</p>
+      {locked && <p style={S.lockNote}>🔒 大会開幕のため変更できません</p>}
+
+      {/* 自分の選択 */}
+      {!isAdmin && (
+        <>
+          <div style={S.myPicksRow}>
+            {[0,1].map(i => (
+              <div key={i} style={{...S.myPickBox, ...(selected[i]?S.myPickBoxFilled:{})}}>
+                {selected[i] || `${i+1}カ国目`}
+              </div>
+            ))}
+          </div>
+
+          {/* 国一覧 */}
+          {!locked && (
+            <div style={S.teamGrid}>
+              {TEAMS.map(t => {
+                const isSel = selected.includes(t);
+                const disabled = !isSel && selected.length >= 2;
+                return (
+                  <button key={t}
+                    style={{...S.teamChip,
+                      ...(isSel ? S.teamChipSel : {}),
+                      ...(disabled ? S.teamChipDisabled : {})
+                    }}
+                    onClick={() => toggle(t)}>
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!locked && (
+            <button style={{...S.startBtn, marginTop:12,
+              opacity: selected.length===2 ? 1 : 0.4}}
+              onClick={save}>
+              💾 保存する（{selected.length}/2）
+            </button>
+          )}
+        </>
+      )}
+
+      {/* 全員の予想一覧 */}
+      <div style={S.champAllWrap}>
+        <h3 style={S.champAllTitle}>📋 全員の優勝予想</h3>
+        {gameState.players.map(p => {
+          const pp = picks[p] || [];
+          return (
+            <div key={p} style={S.champRow}>
+              <span style={S.champName}>{p}</span>
+              <div style={S.champPicksRow}>
+                {pp.length ? pp.map(t => (
+                  <span key={t} style={S.champBadge}>{t}</span>
+                )) : <span style={S.noPred}>未入力</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -744,6 +879,23 @@ const styles = {
   playerBtn:  { padding:'14px', borderRadius:10, background:'#1e3a5f', color:'#93c5fd', border:'1px solid #1d4ed8', cursor:'pointer', fontSize:16, fontWeight:600 },
   adminBtn:   { padding:'10px', borderRadius:10, background:'#3b0764', color:'#c4b5fd', border:'1px solid #7c3aed', cursor:'pointer', fontSize:14, marginTop:8 },
   center:     { display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', color:'#aaa' },
+  champWrap:       { padding:16 },
+  champTitle:      { fontSize:20, fontWeight:700, color:'#ffd700', textAlign:'center', marginBottom:4 },
+  champSub:        { color:'#94a3b8', fontSize:13, textAlign:'center', marginBottom:12 },
+  lockNote:        { color:'#fbbf24', fontSize:12, textAlign:'center', marginBottom:8 },
+  myPicksRow:      { display:'flex', gap:10, marginBottom:14, justifyContent:'center' },
+  myPickBox:       { flex:1, maxWidth:160, padding:'12px 8px', borderRadius:10, border:'2px dashed #334155', color:'#64748b', textAlign:'center', fontSize:14 },
+  myPickBoxFilled: { border:'2px solid #ffd700', color:'#ffd700', fontWeight:700, background:'#1c1700' },
+  teamGrid:        { display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 },
+  teamChip:        { padding:'6px 12px', borderRadius:20, border:'1px solid #334155', background:'#1e293b', color:'#cbd5e1', cursor:'pointer', fontSize:13 },
+  teamChipSel:     { background:'#1d4ed8', borderColor:'#3b82f6', color:'#fff', fontWeight:700 },
+  teamChipDisabled:{ opacity:0.35, cursor:'default' },
+  champAllWrap:    { marginTop:20, background:'#1e293b', borderRadius:12, padding:14 },
+  champAllTitle:   { fontSize:15, fontWeight:600, color:'#e2e8f0', marginBottom:12 },
+  champRow:        { display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid #0f172a' },
+  champName:       { color:'#94a3b8', fontSize:13, width:80, flexShrink:0 },
+  champPicksRow:   { display:'flex', gap:6, flexWrap:'wrap' },
+  champBadge:      { background:'#1c3a1c', border:'1px solid #166534', color:'#4ade80', padding:'3px 10px', borderRadius:12, fontSize:12, fontWeight:600 },
   rulesWrap:  { background:'#0f172a', borderRadius:10, overflow:'hidden', border:'1px solid #1e3a5f' },
   rulesToggle:{ width:'100%', padding:'10px 14px', background:'transparent', border:'none', color:'#93c5fd', cursor:'pointer', fontSize:14, fontWeight:600, textAlign:'left' },
   rulesBody:  { padding:'0 14px 14px' },
