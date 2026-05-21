@@ -315,15 +315,36 @@ export default function App() {
 
   async function saveState(newState) {
     setSaving(true);
+    let success = false;
     try {
-      await fetch('/api/game-state', {
+      const res = await fetch('/api/game-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newState),
       });
-    } catch (e) { setMsg('保存エラー: ' + e.message); }
+      if (res.ok) { success = true; }
+      else { setMsg('⚠️ 保存に失敗しました（サーバーエラー）'); }
+    } catch (e) { setMsg('⚠️ 保存に失敗しました: ' + e.message); }
     setSaving(false);
+    return success;
   }
+
+  // ─ プレイヤー未登録時：5秒ごとにサーバーを自動確認 ─
+  useEffect(() => {
+    if (!gameState || gameState.players.length > 0 || isAdmin) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/game-state');
+        const data = await res.json();
+        if (data && data.players && data.players.length > 0) {
+          setGameState(data);
+          backupPlayers(data.players, data.playerPasswords);
+          setSelDate(data.selDate || fmtDate(ALL_MATCHES[0].kickoff));
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [gameState?.players?.length, isAdmin]);
 
   // ─ 日付リスト ─
   const dates = useMemo(() => {
@@ -635,8 +656,8 @@ export default function App() {
             backupPlayers(players, {});
             const ns = { ...gameState, players, matches: initMatches(), carryover: 0, playerPasswords: {} };
             setGameState(ns);
-            await saveState(ns);
-            setMsg('✅ 登録しました！参加者にブラウザの更新を促してください');
+            const ok = await saveState(ns);
+            if (ok) setMsg('✅ 登録完了！参加者のアプリが自動的に更新されます（最大5秒）');
           }}
           onResetPlayers={() => {
             backupPlayers([], {});
