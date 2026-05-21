@@ -288,6 +288,12 @@ export default function App() {
         backupPlayers(data.players, data.playerPasswords); // localStorageにもバックアップ
         const firstDate = fmtDate(ALL_MATCHES[0].kickoff);
         setSelDate(data.selDate || firstDate);
+        // ログイン中のプレイヤーがリストに存在しない場合は自動ログアウト
+        const savedPlayer = localStorage.getItem('wc2026_player');
+        if (savedPlayer && savedPlayer !== '__admin__' && !data.players.includes(savedPlayer)) {
+          localStorage.removeItem('wc2026_player');
+          setMe(null);
+        }
       } else {
         // Vercel Blobが空 → localStorageのバックアップを確認
         const { players, passwords } = restorePlayers();
@@ -625,11 +631,12 @@ export default function App() {
           onSetTeam={setTeamName}
           pts={pts}
           co={co}
-          onSetupPlayers={(players) => {
+          onSetupPlayers={async (players) => {
             backupPlayers(players, {});
             const ns = { ...gameState, players, matches: initMatches(), carryover: 0, playerPasswords: {} };
             setGameState(ns);
-            saveState(ns);
+            await saveState(ns);
+            setMsg('✅ 登録しました！参加者にブラウザの更新を促してください');
           }}
           onResetPlayers={() => {
             backupPlayers([], {});
@@ -947,7 +954,17 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
         <RulesSection S={S} />
         <div style={{background:'#0f172a', borderRadius:10, padding:16, textAlign:'center'}}>
           <p style={{color:'#fbbf24', fontWeight:700, marginBottom:6}}>⏳ 準備中</p>
-          <p style={{color:'#94a3b8', fontSize:13, margin:0}}>管理者がプレイヤーを登録するまでお待ちください</p>
+          <p style={{color:'#94a3b8', fontSize:13, marginBottom:10}}>管理者がプレイヤーを登録するまでお待ちください</p>
+          <p style={{color:'#64748b', fontSize:11}}>登録済みなのにこの画面が出る場合 ↓</p>
+          <button style={{background:'transparent', border:'1px solid #334155', color:'#64748b', borderRadius:8, padding:'6px 14px', fontSize:12, cursor:'pointer', marginTop:4}}
+            onClick={() => {
+              localStorage.removeItem('wc2026_players');
+              localStorage.removeItem('wc2026_passwords');
+              localStorage.removeItem('wc2026_player');
+              window.location.reload();
+            }}>
+            🔄 このブラウザのキャッシュをリセット
+          </button>
         </div>
         <button style={S.adminBtn} onClick={onAdmin}>🔐 管理者ログイン</button>
       </div>
