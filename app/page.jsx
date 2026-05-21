@@ -576,6 +576,18 @@ export default function App() {
           onSetTeam={setTeamName}
           pts={pts}
           co={co}
+          onSetupPlayers={(players) => {
+            backupPlayers(players, {});
+            const ns = { ...gameState, players, matches: initMatches(), carryover: 0, playerPasswords: {} };
+            setGameState(ns);
+            saveState(ns);
+          }}
+          onResetPlayers={() => {
+            backupPlayers([], {});
+            const ns = { ...gameState, players: [], playerPasswords: {}, matches: initMatches(), carryover: 0 };
+            setGameState(ns);
+            saveState(ns);
+          }}
         />
       )}
     </div>
@@ -762,21 +774,18 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 
   if (loading) return <div style={S.center}>読み込み中...</div>;
 
-  // ─ 初回セットアップ ─
+  // ─ 未設定（管理者のみ設定可） ─
   if (!gameState?.players?.length) {
     return (
       <div style={S.loginBox}>
         <h1 style={S.loginTitle}>🏆 WC2026 予想ゲーム</h1>
         <UsageSection S={S} />
         <RulesSection S={S} />
-        <p style={S.loginSub}>参加者の名前を入力してください（最大5人）</p>
-        {names.map((n,i) => (
-          <input key={i} style={S.nameInput} placeholder={`プレイヤー${i+1}`}
-            value={n} onChange={e => { const a=[...names]; a[i]=e.target.value; setNames(a); }} />
-        ))}
-        <button style={S.startBtn} onClick={() => onSetup(names.filter(n=>n.trim()))}>
-          ゲームスタート 🚀
-        </button>
+        <div style={{background:'#0f172a', borderRadius:10, padding:16, textAlign:'center'}}>
+          <p style={{color:'#fbbf24', fontWeight:700, marginBottom:6}}>⏳ 準備中</p>
+          <p style={{color:'#94a3b8', fontSize:13, margin:0}}>管理者がプレイヤーを登録するまでお待ちください</p>
+        </div>
+        <button style={S.adminBtn} onClick={onAdmin}>🔐 管理者ログイン</button>
       </div>
     );
   }
@@ -868,8 +877,10 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 }
 
 // ─── 管理者ビュー ──────────────────────────────────────────
-function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co }) {
+function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers }) {
   const [adminDate, setAdminDate] = useState(fmtDate(ALL_MATCHES[0].kickoff));
+  const [newNames, setNewNames]   = useState(['','','','','']);
+  const [confirmReset, setConfirmReset] = useState(false);
   const S = styles;
   const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
   const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
@@ -877,6 +888,60 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
   return (
     <div style={S.adminWrap}>
       <h2 style={S.adminTitle}>🔐 管理者パネル</h2>
+
+      {/* プレイヤー管理 */}
+      <div style={S.adminSection}>
+        <h3 style={S.sectionTitle}>👥 プレイヤー管理</h3>
+        {gameState.players.length === 0 ? (
+          // 未登録：登録フォーム
+          <div>
+            <p style={{color:'#94a3b8', fontSize:13, marginBottom:10}}>参加者の名前を入力してください（最大5人）</p>
+            {newNames.map((n,i) => (
+              <input key={i} style={{...S.nameInput, marginBottom:6}} placeholder={`プレイヤー${i+1}`}
+                value={n} onChange={e => { const a=[...newNames]; a[i]=e.target.value; setNewNames(a); }} />
+            ))}
+            <button style={{...S.startBtn, marginTop:4}} onClick={() => {
+              const players = newNames.filter(n => n.trim());
+              if (!players.length) return alert('名前を1人以上入力してください');
+              onSetupPlayers(players);
+              setNewNames(['','','','','']);
+            }}>
+              ✅ 登録する
+            </button>
+          </div>
+        ) : (
+          // 登録済み：一覧 + リセット
+          <div>
+            <div style={{display:'flex', flexWrap:'wrap', gap:6, marginBottom:14}}>
+              {gameState.players.map(p => (
+                <span key={p} style={{background:'#1e3a5f', color:'#93c5fd', padding:'5px 12px', borderRadius:12, fontSize:13, fontWeight:600}}>
+                  {p}
+                </span>
+              ))}
+            </div>
+            {!confirmReset ? (
+              <button style={{...S.fetchBtn, background:'#7f1d1d', fontSize:13}}
+                onClick={() => setConfirmReset(true)}>
+                🔄 プレイヤーをリセット
+              </button>
+            ) : (
+              <div style={{background:'#450a0a', borderRadius:8, padding:12}}>
+                <p style={{color:'#fca5a5', fontSize:13, marginBottom:10}}>
+                  ⚠️ リセットすると全員の予想データも削除されます。本当に実行しますか？
+                </p>
+                <div style={{display:'flex', gap:8}}>
+                  <button style={{...S.fetchBtn, background:'#dc2626', flex:1}} onClick={() => { onResetPlayers(); setConfirmReset(false); }}>
+                    はい、リセットする
+                  </button>
+                  <button style={{...S.fetchBtn, background:'#374151', flex:1}} onClick={() => setConfirmReset(false)}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ランキング */}
       <div style={S.adminSection}>
