@@ -3,37 +3,26 @@ import Anthropic from 'anthropic';
 export async function POST(request) {
   try {
     const { matches } = await request.json();
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return Response.json({ error: 'No API key' }, { status: 500 });
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-    const client = new Anthropic({ apiKey });
+    const matchList = matches
+      .map(m => `試合${m.id}: ${m.home} vs ${m.away}`)
+      .join('\n');
 
-    const matchList = matches.map(m =>
-      `試合${m.id}: ${m.home} vs ${m.away} (${m.dateLabel})`
-    ).join('\n');
-
-    const message = await client.messages.create({
+    const msg = await client.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
       messages: [{
         role: 'user',
-        content: `以下のFIFAワールドカップ2026の試合結果を調べて、JSON形式で返してください。
-まだ試合が行われていない場合は null を返してください。
-
-${matchList}
-
-返答はJSONのみ。形式:
-[{"id": 試合番号, "homeGoals": ホームの得点, "awayGoals": アウェイの得点}]
-試合未実施の場合: [{"id": 試合番号, "homeGoals": null, "awayGoals": null}]`
-      }]
+        content: `FIFA ワールドカップ2026 の以下の試合の最終スコアを教えてください。まだ試合が行われていない場合は null にしてください。\n\n${matchList}\n\nJSON のみで返答してください:\n[{"id":試合番号,"homeGoals":数字またはnull,"awayGoals":数字またはnull}]`,
+      }],
     });
 
-    const text = message.content[0].text;
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return Response.json({ error: 'Parse error' }, { status: 500 });
+    const text = msg.content[0].text;
+    const match = text.match(/\[[\s\S]*?\]/);
+    if (!match) return Response.json({ error: 'parse error' }, { status: 500 });
 
-    const results = JSON.parse(jsonMatch[0]);
-    return Response.json({ results });
+    return Response.json({ results: JSON.parse(match[0]) });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
