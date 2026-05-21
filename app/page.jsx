@@ -148,15 +148,21 @@ const TEAMS = [
 ].sort((a, b) => a.localeCompare(b, 'ja'));
 
 // ─── 阿弥陀くじ・ドラフト ヘルパー ──────────────────────────
-const AMIDA_LEVELS = 6;
+const AMIDA_LEVELS = 14;
 
 function generateAmidaConnectors(n) {
   const cs = [];
   for (let lvl = 0; lvl < AMIDA_LEVELS; lvl++) {
     let i = 0;
+    let added = 0;
     while (i < n - 1) {
-      if (Math.random() > 0.4) { cs.push({ lvl, left: i }); i += 2; }
+      if (Math.random() > 0.25) { cs.push({ lvl, left: i }); added++; i += 2; }
       else i++;
+    }
+    // 各段に必ず1本以上の横棒を保証
+    if (added === 0 && n > 1) {
+      const pos = Math.floor(Math.random() * (n - 1));
+      cs.push({ lvl, left: pos });
     }
   }
   return cs;
@@ -641,8 +647,8 @@ export default function App() {
 function AmidaDisplay({ players, connectors, showResult }) {
   const n = players.length;
   const SP = Math.min(68, 260 / Math.max(n - 1, 1));
-  const PX = 36, W = PX * 2 + (n - 1) * SP, H = 270;
-  const TY = 48, BY = 222, LH = (BY - TY) / (AMIDA_LEVELS + 1);
+  const PX = 36, W = PX * 2 + (n - 1) * SP, H = 420;
+  const TY = 48, BY = 370, LH = (BY - TY) / (AMIDA_LEVELS + 1);
   const lx = i => PX + i * SP;
   const ly = l => TY + (l + 1) * LH;
   const COLORS = ['#f87171','#4ade80','#60a5fa','#fbbf24','#c084fc'];
