@@ -1,8 +1,8 @@
-import { list, put, del } from '@vercel/blob';
+import { list, put, del, download } from '@vercel/blob';
 
 const PREFIX = 'wc2026-game-state';
 
-export const dynamic = 'force-dynamic'; // Next.jsのキャッシュを無効化
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
@@ -16,8 +16,8 @@ export async function GET() {
         },
       });
     }
-    // タイムスタンプ付きでCDNキャッシュをバイパス
-    const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, { cache: 'no-store' });
+    // privateストアはdownload()でサーバー側認証を使って取得
+    const res = await download(blobs[0].url);
     const data = await res.json();
     return new Response(JSON.stringify(data), {
       headers: {
@@ -37,20 +37,13 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
+    // 既存ファイルを全削除してから新規保存（privateストア対応）
     const { blobs } = await list({ prefix: PREFIX });
-    // 既存ファイルの削除（失敗しても続行）
     await Promise.allSettled(blobs.map(b => del(b.url)));
-    const putResult = await put(`${PREFIX}.json`, JSON.stringify(body), {
-      access: 'public',
+    await put(`${PREFIX}.json`, JSON.stringify(body), {
+      access: 'private',
       contentType: 'application/json',
-      addRandomSuffix: false,
     });
-    if (!putResult?.url) {
-      return new Response(JSON.stringify({ error: 'put failed: no url returned' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
     return new Response(JSON.stringify({ ok: true }), {
       headers: {
         'Content-Type': 'application/json',
