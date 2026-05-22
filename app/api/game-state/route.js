@@ -44,6 +44,7 @@ export async function POST(request) {
     const { blobs } = await list({ prefix: PREFIX });
     await Promise.allSettled(blobs.map(b => del(b.url)));
     await put(`${PREFIX}.json`, JSON.stringify(body), {
+      access: 'private',
       contentType: 'application/json',
       addRandomSuffix: false,
       allowOverwrite: true,
