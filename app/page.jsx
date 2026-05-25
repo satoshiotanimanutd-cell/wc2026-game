@@ -308,17 +308,43 @@ export default function App() {
     />;
   }
 
-  // ─ プレイヤー予想入力 ─
-  function setPrediction(matchId, field, value) {
-    const nm = gameState.matches.map(m => {
+  // ─ プレイヤー予想入力（競合防止：サーバー最新状態にマージして保存） ─
+  async function setPrediction(matchId, field, value) {
+    // UIはすぐ更新（レスポンス向上）
+    const nmLocal = gameState.matches.map(m => {
       if (m.id !== matchId) return m;
-      const pred = { ...(m.predictions || {})[me] };
-      pred[field] = value;
+      const pred = { ...(m.predictions || {})[me], [field]: value };
       return { ...m, predictions: { ...m.predictions, [me]: pred } };
     });
-    const ns = { ...gameState, matches: nm };
-    setGameState(ns);
-    saveState(ns);
+    setGameState(ns => ({ ...ns, matches: nmLocal }));
+
+    setSaving(true);
+    try {
+      // サーバーの最新データを取得してマージ（他プレイヤーの予想を保持）
+      const res = await fetch('/api/game-state?' + Date.now());
+      const serverState = await res.json();
+      const base = (serverState && serverState.players) ? serverState : gameState;
+
+      const nm = base.matches.map(m => {
+        if (m.id !== matchId) return m;
+        const pred = { ...(m.predictions || {})[me], [field]: value };
+        return { ...m, predictions: { ...m.predictions, [me]: pred } };
+      });
+      const merged = { ...base, matches: nm };
+      setGameState(merged);
+
+      const saveRes = await fetch('/api/game-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged),
+      });
+      if (!saveRes.ok) {
+        let errDetail = '';
+        try { const eb = await saveRes.json(); errDetail = eb.error || ''; } catch {}
+        setMsg(`⚠️ 保存に失敗しました（${saveRes.status}${errDetail ? ': ' + errDetail : ''}）`);
+      }
+    } catch (e) { setMsg('⚠️ 保存に失敗しました: ' + e.message); }
+    setSaving(false);
   }
 
   // ─ 管理者：結果入力 ─
