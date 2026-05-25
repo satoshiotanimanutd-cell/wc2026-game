@@ -323,7 +323,7 @@ export default function App() {
       // サーバーの最新データを取得してマージ（他プレイヤーの予想を保持）
       const res = await fetch('/api/game-state?' + Date.now());
       const serverState = await res.json();
-      const base = (serverState && serverState.players) ? serverState : gameState;
+      const base = (serverState && Array.isArray(serverState.players) && serverState.players.length > 0) ? serverState : gameState;
 
       const nm = base.matches.map(m => {
         if (m.id !== matchId) return m;
@@ -1063,6 +1063,36 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
   return (
     <div style={S.adminWrap}>
       <h2 style={S.adminTitle}>🔐 管理者パネル</h2>
+
+      {/* ─ 予想状況 ─ */}
+      <div style={S.adminSection}>
+        <h3 style={S.sectionTitle}>📋 予想状況</h3>
+        {gameState.matches.map(m => {
+          const predicted = gameState.players.filter(p => m.predictions?.[p]?.result);
+          const notYet = gameState.players.filter(p => !m.predictions?.[p]?.result);
+          return (
+            <div key={m.id} style={{marginBottom:10, background:'#0f172a', borderRadius:8, padding:'10px 12px'}}>
+              <p style={{color:'#94a3b8', fontSize:12, marginBottom:6}}>
+                試合{m.id}：{m.home} vs {m.away}
+                <span style={{marginLeft:8, color: notYet.length===0 ? '#4ade80' : '#fbbf24', fontWeight:700}}>
+                  {predicted.length}/{gameState.players.length}人完了
+                </span>
+              </p>
+              <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                {gameState.players.map(p => (
+                  <span key={p} style={{
+                    fontSize:11, padding:'2px 8px', borderRadius:12,
+                    background: m.predictions?.[p]?.result ? '#14532d' : '#1e293b',
+                    color: m.predictions?.[p]?.result ? '#4ade80' : '#64748b',
+                  }}>
+                    {m.predictions?.[p]?.result ? '✅' : '⏳'} {p}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* ─ データ管理 ─ */}
       <div style={S.adminSection}>
