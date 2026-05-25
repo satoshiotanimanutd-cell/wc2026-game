@@ -277,6 +277,41 @@ export default function App() {
     return calcPoints(gameState.matches, gameState.players);
   }, [gameState]);
 
+  // ─ 試合ごとの自分のポイント計算（結果表示用） ─
+  const matchPointsMap = useMemo(() => {
+    if (!gameState || !me) return {};
+    const map = {};
+    let carryover = 0;
+    gameState.matches.forEach(m => {
+      if (!m.result || m.result.homeGoals === null) { return; }
+      const { homeGoals, awayGoals } = m.result;
+      const correctResult = getResult(homeGoals, awayGoals);
+      const n = gameState.players.length;
+      const pred = m.predictions?.[me];
+      const resultWinners = gameState.players.filter(p => m.predictions?.[p]?.result === correctResult);
+      const resultPool = BET_RESULT * n;
+      const myResultCorrect = pred?.result === correctResult;
+      const resultDelta = myResultCorrect
+        ? Math.floor(resultPool / resultWinners.length) - BET_RESULT
+        : -BET_RESULT;
+      const scorePool = BET_SCORE * n + carryover;
+      const scoreWinners = gameState.players.filter(p => {
+        const pp = m.predictions?.[p];
+        return pp && Number(pp.homeGoals) === homeGoals && Number(pp.awayGoals) === awayGoals;
+      });
+      const myScoreCorrect = pred
+        ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
+        : false;
+      const noScoreWinner = scoreWinners.length === 0;
+      const scoreDelta = (scoreWinners.length > 0 && myScoreCorrect)
+        ? Math.floor(scorePool / scoreWinners.length) - BET_SCORE
+        : -BET_SCORE;
+      carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
+      map[m.id] = { resultDelta, scoreDelta, total: resultDelta + scoreDelta, myResultCorrect, myScoreCorrect, noScoreWinner };
+    });
+    return map;
+  }, [gameState, me]);
+
   // ─ データ読み込み中（localStorage復元直後など） ─
   if (loading || !gameState) {
     return <div style={styles.center}>読み込み中...</div>;
@@ -410,46 +445,6 @@ export default function App() {
     } catch (e) { setMsg('エラー: ' + e.message); }
     setFetchingResults(false);
   }
-
-  // ─ 試合ごとの自分のポイント計算（結果表示用） ─
-  const matchPointsMap = useMemo(() => {
-    if (!gameState || !me) return {};
-    const map = {};
-    let carryover = 0;
-    gameState.matches.forEach(m => {
-      if (!m.result || m.result.homeGoals === null) { return; }
-      const { homeGoals, awayGoals } = m.result;
-      const correctResult = getResult(homeGoals, awayGoals);
-      const n = gameState.players.length;
-      const pred = m.predictions?.[me];
-
-      // 結果予想
-      const resultWinners = gameState.players.filter(p => m.predictions?.[p]?.result === correctResult);
-      const resultPool = BET_RESULT * n;
-      const myResultCorrect = pred?.result === correctResult;
-      const resultDelta = myResultCorrect
-        ? Math.floor(resultPool / resultWinners.length) - BET_RESULT
-        : -BET_RESULT;
-
-      // スコア予想
-      const scorePool = BET_SCORE * n + carryover;
-      const scoreWinners = gameState.players.filter(p => {
-        const pp = m.predictions?.[p];
-        return pp && Number(pp.homeGoals) === homeGoals && Number(pp.awayGoals) === awayGoals;
-      });
-      const myScoreCorrect = pred
-        ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
-        : false;
-      const noScoreWinner = scoreWinners.length === 0;
-      const scoreDelta = (scoreWinners.length > 0 && myScoreCorrect)
-        ? Math.floor(scorePool / scoreWinners.length) - BET_SCORE
-        : -BET_SCORE;
-
-      carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
-      map[m.id] = { resultDelta, scoreDelta, total: resultDelta + scoreDelta, myResultCorrect, myScoreCorrect, noScoreWinner };
-    });
-    return map;
-  }, [gameState, me]);
 
   const S = styles;
 
