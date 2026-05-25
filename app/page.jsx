@@ -106,14 +106,14 @@ function calcPoints(matches, players) {
     if (homeGoals === null || awayGoals === null) return;
     const correctResult = getResult(homeGoals, awayGoals);
 
-    // ─ 勝敗ベット ─
+    // ─ 勝敗ベット（誰も当たらなければ全員変動なし） ─
     const resultWinners = players.filter(p => {
       const pred = m.predictions?.[p];
       return pred && pred.result === correctResult;
     });
-    const resultPool = BET_RESULT * players.length;
-    players.forEach(p => { pts[p] -= BET_RESULT; });
     if (resultWinners.length > 0) {
+      const resultPool = BET_RESULT * players.length;
+      players.forEach(p => { pts[p] -= BET_RESULT; });
       const share = Math.floor(resultPool / resultWinners.length);
       resultWinners.forEach(p => { pts[p] += share; });
     }
@@ -304,11 +304,13 @@ export default function App() {
       const n = gameState.players.length;
       const pred = m.predictions?.[me];
       const resultWinners = gameState.players.filter(p => m.predictions?.[p]?.result === correctResult);
-      const resultPool = BET_RESULT * n;
       const myResultCorrect = pred?.result === correctResult;
-      const resultDelta = myResultCorrect
-        ? Math.floor(resultPool / resultWinners.length) - BET_RESULT
-        : -BET_RESULT;
+      const noResultWinner = resultWinners.length === 0;
+      // 誰も当たらなければ全員変動なし（ゼロサム維持）
+      const resultDelta = noResultWinner ? 0 :
+        (myResultCorrect
+          ? Math.floor(BET_RESULT * n / resultWinners.length) - BET_RESULT
+          : -BET_RESULT);
       const scorePool = BET_SCORE * n + carryover;
       const scoreWinners = gameState.players.filter(p => {
         const pp = m.predictions?.[p];
@@ -1063,7 +1065,7 @@ function RulesSection({ S }) {
           <ul style={S.rulesList}>
             <li>各試合、全員が <strong>1,000pt</strong> を自動的に賭ける</li>
             <li>的中者が全員分のポイントを総取り（複数いれば山分け）</li>
-            <li>誰も当たらなければ全員が -1,000pt</li>
+            <li>誰も当たらなければ全員ポイント変動なし（キャリーオーバーなし）</li>
           </ul>
           <p style={S.rulesHeading}>🎯 スコア予想</p>
           <ul style={S.rulesList}>
