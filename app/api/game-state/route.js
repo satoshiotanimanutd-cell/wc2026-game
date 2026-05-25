@@ -22,7 +22,13 @@ export async function GET() {
     });
     if (!res.ok) throw new Error(`Redis GET failed: ${res.status}`);
     const { result } = await res.json();
-    const data = result ? JSON.parse(result) : null;
+    // resultが文字列なら JSON.parse、オブジェクト（Upstashが自動変換）ならそのまま使う
+    let data = null;
+    if (result !== null && result !== undefined) {
+      data = (typeof result === 'string') ? JSON.parse(result) : result;
+      // 二重エンコードされていた場合の対応
+      if (typeof data === 'string') data = JSON.parse(data);
+    }
     return new Response(JSON.stringify(data), { headers: NO_CACHE_HEADERS });
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), {
@@ -41,7 +47,7 @@ export async function POST(request) {
         Authorization: `Bearer ${REDIS_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(JSON.stringify(body)), // Redis は文字列で保存
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Redis SET failed: ${res.status}`);
     return new Response(JSON.stringify({ ok: true }), {
