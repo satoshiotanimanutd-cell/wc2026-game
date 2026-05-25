@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 
 // ─── プレ大会：プレミアリーグ2025-26 第38節（最終節）5試合 ───
 const ALL_MATCHES = [
@@ -234,6 +234,21 @@ export default function App() {
   // ─ プレイヤー未登録時：5秒ごとにサーバーを自動確認 ─
   const [pollStatus, setPollStatus] = useState('');
 
+  // ─ 自分の最新予想を常に保持するref（競合防止） ─
+  const myPredsRef = useRef({});      // { matchId: { result, homeGoals, awayGoals } }
+  const pendingSaveRef = useRef(null); // デバウンス用タイマー
+
+  // ログイン時にrefを初期化（サーバーに既存予想があれば読み込む）
+  useEffect(() => {
+    if (!me) { myPredsRef.current = {}; return; }
+    if (!gameState?.matches) return;
+    const init = {};
+    gameState.matches.forEach(m => {
+      if (m.predictions?.[me]) init[m.id] = { ...m.predictions[me] };
+    });
+    myPredsRef.current = init;
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function checkServerPlayers() {
     setPollStatus('確認中...');
     try {
@@ -346,39 +361,52 @@ export default function App() {
     />;
   }
 
-  // ─ プレイヤー予想入力（競合防止：自分の予想はローカル全体を保持、他者はサーバーから取得） ─
-  async function setPrediction(matchId, field, value) {
-    // ① まずローカル状態を更新（UI即反映）
-    const localUpdated = gameState.matches.map(m => {
-      if (m.id !== matchId) return m;
-      const pred = { ...(m.predictions || {})[me], [field]: value };
-      return { ...m, predictions: { ...m.predictions, [me]: pred } };
-    });
-    const localState = { ...gameState, matches: localUpdated };
-    setGameState(localState);
+  // ─ プレイヤー予想入力（ref + デバウンスで競合を完全防止） ─
+  function setPrediction(matchId, field, value) {
+    // ① refを即座に更新（常に全フィールドの最新値を保持）
+    myPredsRef.current = {
+      ...myPredsRef.current,
+      [matchId]: { ...(myPredsRef.current[matchId] || {}), [field]: value },
+    };
 
+    // ② UIを即座に更新（functional updateで陳腐化なし）
+    setGameState(prev => ({
+      ...prev,
+      matches: prev.matches.map(m =>
+        m.id === matchId
+          ? { ...m, predictions: { ...m.predictions, [me]: myPredsRef.current[matchId] } }
+          : m
+      ),
+    }));
+
+    // ③ 500ms後にサーバー保存（デバウンス：連続入力でも1回だけ保存）
+    if (pendingSaveRef.current) clearTimeout(pendingSaveRef.current);
+    pendingSaveRef.current = setTimeout(doSavePredictions, 500);
+  }
+
+  async function doSavePredictions() {
     setSaving(true);
     try {
-      // ② サーバーの最新データを取得（他プレイヤーの予想を拾うため）
-      const res = await fetch('/api/game-state?' + Date.now());
+      // サーバーの最新データを取得（他プレイヤーの予想を拾うため）
+      const res = await fetch('/api/game-state?' + Date.now(), {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
       const serverState = await res.json();
       const serverValid = serverState && Array.isArray(serverState.players) && serverState.players.length > 0;
+      if (!serverValid) { setSaving(false); return; }
 
-      // ③ マージ：サーバーをベースに、自分の予想だけローカルの最新状態で上書き
-      let mergedMatches;
-      if (serverValid) {
-        mergedMatches = serverState.matches.map(sm => {
-          // 自分の予想：localStateの最新を使う（消えないように）
-          const myPred = localState.matches.find(lm => lm.id === sm.id)?.predictions?.[me];
-          const newPreds = { ...sm.predictions };
-          if (myPred) newPreds[me] = myPred;
-          else delete newPreds[me];
-          return { ...sm, predictions: newPreds };
-        });
-      } else {
-        mergedMatches = localUpdated;
-      }
-      const merged = { ...(serverValid ? serverState : localState), matches: mergedMatches };
+      // サーバーをベースに、refの最新予想でマージ（古いスナップショットを使わない）
+      const mergedMatches = serverState.matches.map(sm => {
+        const newPreds = { ...sm.predictions };
+        const myPred = myPredsRef.current[sm.id];
+        if (myPred && Object.keys(myPred).length > 0) newPreds[me] = myPred;
+        else delete newPreds[me];
+        return { ...sm, predictions: newPreds };
+      });
+      const merged = { ...serverState, matches: mergedMatches };
+
+      // UIも最新サーバーデータ（他プレイヤー分）で更新
       setGameState(merged);
 
       const saveRes = await fetch('/api/game-state', {
