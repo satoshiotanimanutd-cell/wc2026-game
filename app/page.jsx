@@ -408,6 +408,46 @@ export default function App() {
     setFetchingResults(false);
   }
 
+  // ─ 試合ごとの自分のポイント計算（結果表示用） ─
+  const matchPointsMap = useMemo(() => {
+    if (!gameState || !me) return {};
+    const map = {};
+    let carryover = 0;
+    gameState.matches.forEach(m => {
+      if (!m.result || m.result.homeGoals === null) { return; }
+      const { homeGoals, awayGoals } = m.result;
+      const correctResult = getResult(homeGoals, awayGoals);
+      const n = gameState.players.length;
+      const pred = m.predictions?.[me];
+
+      // 結果予想
+      const resultWinners = gameState.players.filter(p => m.predictions?.[p]?.result === correctResult);
+      const resultPool = BET_RESULT * n;
+      const myResultCorrect = pred?.result === correctResult;
+      const resultDelta = myResultCorrect
+        ? Math.floor(resultPool / resultWinners.length) - BET_RESULT
+        : -BET_RESULT;
+
+      // スコア予想
+      const scorePool = BET_SCORE * n + carryover;
+      const scoreWinners = gameState.players.filter(p => {
+        const pp = m.predictions?.[p];
+        return pp && Number(pp.homeGoals) === homeGoals && Number(pp.awayGoals) === awayGoals;
+      });
+      const myScoreCorrect = pred
+        ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
+        : false;
+      const noScoreWinner = scoreWinners.length === 0;
+      const scoreDelta = (scoreWinners.length > 0 && myScoreCorrect)
+        ? Math.floor(scorePool / scoreWinners.length) - BET_SCORE
+        : -BET_SCORE;
+
+      carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
+      map[m.id] = { resultDelta, scoreDelta, total: resultDelta + scoreDelta, myResultCorrect, myScoreCorrect, noScoreWinner };
+    });
+    return map;
+  }, [gameState, me]);
+
   const S = styles;
 
   return (
@@ -487,8 +527,8 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* 予想入力（ロック前のみ） */}
-                  {!locked && !isAdmin && (
+                  {/* 予想入力（キックオフ前・プレイヤーのみ） */}
+                  {!locked && !isAdmin && !hasResult && (
                     <div style={S.predRow}>
                       <div style={S.resultBtns}>
                         {[{v:'home',l:`${m.home}勝ち`},{v:'draw',l:'引き分け'},{v:'away',l:`${m.away}勝ち`}].map(opt => (
@@ -514,8 +554,104 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* ロック後：全員の予想表示 */}
-                  {(locked || hasResult) && (
+                  {/* ロック済み・結果前：自分の予想を読み取り専用で表示 */}
+                  {locked && !hasResult && !isAdmin && (
+                    <div style={{padding:'10px 0', borderTop:'1px solid #1e293b', marginTop:6}}>
+                      <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>🔒 締切済み・結果待ち</p>
+                      {myPred.result ? (
+                        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                          <span style={{...S.resBtn, ...S.resBtnActive, cursor:'default', opacity:0.8}}>
+                            {myPred.result==='home'?`${m.home}勝ち`:myPred.result==='away'?`${m.away}勝ち`:'引き分け'}
+                          </span>
+                          <span style={{color:'#94a3b8', fontSize:13}}>
+                            スコア: {myPred.homeGoals??'?'} - {myPred.awayGoals??'?'}
+                          </span>
+                        </div>
+                      ) : <span style={S.noPred}>⚠️ 未予想</span>}
+                    </div>
+                  )}
+
+                  {/* 結果後：自分の予想＋正誤＋ポイント（プレイヤー） */}
+                  {hasResult && !isAdmin && (() => {
+                    const mp = matchPointsMap[m.id];
+                    return (
+                      <div style={{borderTop:'1px solid #1e293b', marginTop:8, paddingTop:10}}>
+                        {/* 自分の予想（読み取り専用） */}
+                        <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>あなたの予想</p>
+                        {myPred.result ? (
+                          <div style={{display:'flex', flexDirection:'column', gap:6, marginBottom:10}}>
+                            <div style={{display:'flex', alignItems:'center', gap:8}}>
+                              <span style={{...S.resBtn, ...S.resBtnActive, cursor:'default', opacity:0.85}}>
+                                {myPred.result==='home'?`${m.home}勝ち`:myPred.result==='away'?`${m.away}勝ち`:'引き分け'}
+                              </span>
+                              <span style={{fontSize:16}}>{mp?.myResultCorrect ? '✅' : '❌'}</span>
+                            </div>
+                            <div style={{display:'flex', alignItems:'center', gap:8}}>
+                              <span style={{color:'#94a3b8', fontSize:13}}>
+                                スコア: {myPred.homeGoals??'?'} - {myPred.awayGoals??'?'}
+                              </span>
+                              <span style={{fontSize:16}}>{mp?.myScoreCorrect ? '✅' : (mp?.noScoreWinner ? '➡️' : '❌')}</span>
+                            </div>
+                          </div>
+                        ) : <p style={{...S.noPred, marginBottom:10}}>⚠️ 未予想（この試合はポイントなし）</p>}
+
+                        {/* ポイント内訳 */}
+                        {mp && (
+                          <div style={{background:'#0f172a', borderRadius:8, padding:'8px 12px', marginBottom:10}}>
+                            <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>📊 この試合のポイント</p>
+                            <div style={{display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:3}}>
+                              <span style={{color:'#94a3b8'}}>結果予想</span>
+                              <span style={{color: mp.resultDelta >= 0 ? '#4ade80' : '#f87171', fontWeight:700}}>
+                                {mp.resultDelta >= 0 ? '+' : ''}{mp.resultDelta.toLocaleString()} pt
+                              </span>
+                            </div>
+                            <div style={{display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:6}}>
+                              <span style={{color:'#94a3b8'}}>
+                                スコア予想{mp.noScoreWinner ? '（次へ繰越）' : ''}
+                              </span>
+                              <span style={{color: mp.scoreDelta >= 0 ? '#4ade80' : '#f87171', fontWeight:700}}>
+                                {mp.scoreDelta >= 0 ? '+' : ''}{mp.scoreDelta.toLocaleString()} pt
+                              </span>
+                            </div>
+                            <div style={{display:'flex', justifyContent:'space-between', fontSize:13, borderTop:'1px solid #1e293b', paddingTop:6}}>
+                              <span style={{color:'#e2e8f0', fontWeight:700}}>合計</span>
+                              <span style={{color: mp.total >= 0 ? '#4ade80' : '#f87171', fontWeight:800, fontSize:15}}>
+                                {mp.total >= 0 ? '+' : ''}{mp.total.toLocaleString()} pt
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 全員の予想 */}
+                        <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>全員の予想</p>
+                        <div style={S.allPreds}>
+                          {gameState.players.map(p => {
+                            const pred = m.predictions?.[p];
+                            const rCorrect = pred?.result === getResult(m.result.homeGoals, m.result.awayGoals);
+                            const sCorrect = pred && Number(pred.homeGoals) === m.result.homeGoals && Number(pred.awayGoals) === m.result.awayGoals;
+                            return (
+                              <div key={p} style={S.playerPred}>
+                                <span style={S.predName}>{p}</span>
+                                {pred ? (
+                                  <>
+                                    <span style={{...S.predResult, ...(rCorrect?S.correct:S.wrong)}}>
+                                      {pred.result==='home'?`${m.home}勝ち`:pred.result==='away'?`${m.away}勝ち`:'引き分け'}
+                                    </span>
+                                    <span style={{...S.predScore, ...(sCorrect?S.correct:pred.homeGoals!==undefined?S.wrong:{})}}>
+                                      {pred.homeGoals??'?'}-{pred.awayGoals??'?'}
+                                    </span>
+                                  </>
+                                ) : <span style={S.noPred}>⚠️ 未予想</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 管理者：全員の予想表示 */}
+                  {(locked || hasResult) && isAdmin && (
                     <div style={S.allPreds}>
                       {gameState.players.map(p => {
                         const pred = m.predictions?.[p];
