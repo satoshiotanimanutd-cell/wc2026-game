@@ -308,29 +308,39 @@ export default function App() {
     />;
   }
 
-  // ─ プレイヤー予想入力（競合防止：サーバー最新状態にマージして保存） ─
+  // ─ プレイヤー予想入力（競合防止：自分の予想はローカル全体を保持、他者はサーバーから取得） ─
   async function setPrediction(matchId, field, value) {
-    // UIはすぐ更新（レスポンス向上）
-    const nmLocal = gameState.matches.map(m => {
+    // ① まずローカル状態を更新（UI即反映）
+    const localUpdated = gameState.matches.map(m => {
       if (m.id !== matchId) return m;
       const pred = { ...(m.predictions || {})[me], [field]: value };
       return { ...m, predictions: { ...m.predictions, [me]: pred } };
     });
-    setGameState(ns => ({ ...ns, matches: nmLocal }));
+    const localState = { ...gameState, matches: localUpdated };
+    setGameState(localState);
 
     setSaving(true);
     try {
-      // サーバーの最新データを取得してマージ（他プレイヤーの予想を保持）
+      // ② サーバーの最新データを取得（他プレイヤーの予想を拾うため）
       const res = await fetch('/api/game-state?' + Date.now());
       const serverState = await res.json();
-      const base = (serverState && Array.isArray(serverState.players) && serverState.players.length > 0) ? serverState : gameState;
+      const serverValid = serverState && Array.isArray(serverState.players) && serverState.players.length > 0;
 
-      const nm = base.matches.map(m => {
-        if (m.id !== matchId) return m;
-        const pred = { ...(m.predictions || {})[me], [field]: value };
-        return { ...m, predictions: { ...m.predictions, [me]: pred } };
-      });
-      const merged = { ...base, matches: nm };
+      // ③ マージ：サーバーをベースに、自分の予想だけローカルの最新状態で上書き
+      let mergedMatches;
+      if (serverValid) {
+        mergedMatches = serverState.matches.map(sm => {
+          // 自分の予想：localStateの最新を使う（消えないように）
+          const myPred = localState.matches.find(lm => lm.id === sm.id)?.predictions?.[me];
+          const newPreds = { ...sm.predictions };
+          if (myPred) newPreds[me] = myPred;
+          else delete newPreds[me];
+          return { ...sm, predictions: newPreds };
+        });
+      } else {
+        mergedMatches = localUpdated;
+      }
+      const merged = { ...(serverValid ? serverState : localState), matches: mergedMatches };
       setGameState(merged);
 
       const saveRes = await fetch('/api/game-state', {
