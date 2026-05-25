@@ -176,7 +176,10 @@ export default function App() {
   async function loadState() {
     setLoading(true);
     try {
-      const res = await fetch('/api/game-state');
+      const res = await fetch('/api/game-state?' + Date.now(), {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+      });
       const data = await res.json();
       if (data && data.players && data.players.length > 0) {
         setGameState(data);
