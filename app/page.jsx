@@ -137,6 +137,62 @@ function calcPoints(matches, players) {
   return { pts, carryover };
 }
 
+// ─── プレイヤー別ポイント変遷計算 ────────────────────────────
+function calcPlayerHistory(targetPlayer, matches, players) {
+  const history = [];
+  let carryover = 0;
+  let cumulative = 0;
+
+  matches.forEach(m => {
+    if (!m.result || m.result.homeGoals === null || m.result.homeGoals === undefined) return;
+    const { homeGoals, awayGoals } = m.result;
+    const correctResult = getResult(homeGoals, awayGoals);
+    const n = players.length;
+    const pred = m.predictions?.[targetPlayer];
+
+    // 勝敗ベット（誰も当たらなければ変動なし）
+    const resultWinners = players.filter(p => m.predictions?.[p]?.result === correctResult);
+    const myResultCorrect = pred?.result === correctResult;
+    const noResultWinner = resultWinners.length === 0;
+    let resultDelta = 0;
+    if (!noResultWinner) {
+      resultDelta = myResultCorrect
+        ? Math.floor(BET_RESULT * n / resultWinners.length) - BET_RESULT
+        : -BET_RESULT;
+    }
+
+    // スコアベット
+    const scorePool = BET_SCORE * n + carryover;
+    const scoreWinners = players.filter(p => {
+      const pp = m.predictions?.[p];
+      return pp && Number(pp.homeGoals) === homeGoals && Number(pp.awayGoals) === awayGoals;
+    });
+    const myScoreCorrect = pred
+      ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
+      : false;
+    const noScoreWinner = scoreWinners.length === 0;
+    let scoreDelta = -BET_SCORE;
+    if (!noScoreWinner && myScoreCorrect) {
+      scoreDelta = Math.floor(scorePool / scoreWinners.length) - BET_SCORE;
+    }
+
+    const prevCarryover = carryover;
+    carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
+    const delta = resultDelta + scoreDelta;
+    cumulative += delta;
+
+    history.push({
+      home: m.home, away: m.away, homeGoals, awayGoals,
+      resultDelta, scoreDelta, delta, cumulative,
+      myResultCorrect, myScoreCorrect,
+      noResultWinner, noScoreWinner,
+      usedCarryover: prevCarryover,
+    });
+  });
+
+  return history;
+}
+
 // ─── メインコンポーネント ─────────────────────────────────
 export default function App() {
   const [gameState, setGameState] = useState(null);
@@ -233,6 +289,9 @@ export default function App() {
 
   // ─ プレイヤー未登録時：5秒ごとにサーバーを自動確認 ─
   const [pollStatus, setPollStatus] = useState('');
+
+  // ─ ランキング：クリックで変遷表示するプレイヤー ─
+  const [selectedRankPlayer, setSelectedRankPlayer] = useState(null);
 
   // ─ 自分の最新予想を常に保持するref（競合防止） ─
   const myPredsRef = useRef({});      // { matchId: { result, homeGoals, awayGoals } }
@@ -743,15 +802,75 @@ export default function App() {
         <div style={S.ranking}>
           <h2 style={S.rankTitle}>🏅 現在のランキング</h2>
           {co > 0 && <p style={S.carryNote}>🔥 スコアキャリーオーバー: {co.toLocaleString()}pt</p>}
-          {gameState.players
+          <p style={S.rankHint}>名前をタップするとポイント変遷を表示</p>
+          {[...gameState.players]
             .sort((a,b) => (pts[b]||0) - (pts[a]||0))
-            .map((p, i) => (
-              <div key={p} style={{...S.rankRow, ...(i===0?S.rank1:i===1?S.rank2:i===2?S.rank3:{})}}>
-                <span style={S.rankPos}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}位`}</span>
-                <span style={S.rankName}>{p}</span>
-                <span style={S.rankPts}>{(pts[p]||0).toLocaleString()}pt</span>
-              </div>
-            ))}
+            .map((p, i) => {
+              const isOpen = selectedRankPlayer === p;
+              const history = isOpen ? calcPlayerHistory(p, gameState.matches, gameState.players) : [];
+              return (
+                <div key={p}>
+                  <div
+                    style={{...S.rankRow, ...(i===0?S.rank1:i===1?S.rank2:i===2?S.rank3:{}), cursor:'pointer', userSelect:'none'}}
+                    onClick={() => setSelectedRankPlayer(isOpen ? null : p)}
+                  >
+                    <span style={S.rankPos}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}位`}</span>
+                    <span style={S.rankName}>{p}</span>
+                    <span style={S.rankPts}>{(pts[p]||0).toLocaleString()}pt</span>
+                    <span style={S.rankChevron}>{isOpen ? '▲' : '▼'}</span>
+                  </div>
+                  {isOpen && (
+                    <div style={S.historyPanel}>
+                      <p style={S.historyTitle}>📈 {p} のポイント変遷</p>
+                      {history.length === 0 && <p style={{color:'#94a3b8', fontSize:13}}>まだ結果が出ていません</p>}
+                      {history.map((h, idx) => (
+                        <div key={idx} style={S.historyItem}>
+                          <div style={S.historyMatchName}>
+                            ⚽ {h.home} {h.homeGoals}-{h.awayGoals} {h.away}
+                          </div>
+                          <div style={S.historyRows}>
+                            <div style={S.historyLine}>
+                              <span style={S.historyLabel}>勝敗予想</span>
+                              {h.noResultWinner
+                                ? <span style={S.historyNeutral}>変動なし（誰も不正解）</span>
+                                : h.myResultCorrect
+                                  ? <span style={S.historyWin}>✅ 正解</span>
+                                  : <span style={S.historyLose}>❌ 不正解</span>
+                              }
+                              <span style={{...S.historyDelta, color: h.resultDelta > 0 ? '#4ade80' : h.resultDelta < 0 ? '#f87171' : '#94a3b8'}}>
+                                {h.resultDelta === 0 ? '±0' : (h.resultDelta > 0 ? '+' : '') + h.resultDelta.toLocaleString()}pt
+                              </span>
+                            </div>
+                            <div style={S.historyLine}>
+                              <span style={S.historyLabel}>スコア予想</span>
+                              {h.noScoreWinner
+                                ? <span style={S.historyCarry}>🔥 CO</span>
+                                : h.myScoreCorrect
+                                  ? <span style={S.historyWin}>✅ 正解{h.usedCarryover > 0 ? `（CO+${h.usedCarryover.toLocaleString()}）` : ''}</span>
+                                  : <span style={S.historyLose}>❌ 不正解</span>
+                              }
+                              <span style={{...S.historyDelta, color: h.scoreDelta > 0 ? '#4ade80' : '#f87171'}}>
+                                {(h.scoreDelta > 0 ? '+' : '') + h.scoreDelta.toLocaleString()}pt
+                              </span>
+                            </div>
+                          </div>
+                          <div style={S.historyCumRow}>
+                            <span style={S.historyCumLabel}>この試合</span>
+                            <span style={{...S.historyCumDelta, color: h.delta > 0 ? '#4ade80' : h.delta < 0 ? '#f87171' : '#94a3b8'}}>
+                              {(h.delta > 0 ? '+' : '') + h.delta.toLocaleString()}pt
+                            </span>
+                            <span style={S.historyCumLabel}>累計</span>
+                            <span style={{...S.historyCumTotal, color: h.cumulative >= 0 ? '#4ade80' : '#f87171'}}>
+                              {(h.cumulative > 0 ? '+' : '') + h.cumulative.toLocaleString()}pt
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
 
@@ -1553,15 +1672,33 @@ const styles = {
   wrong:      { color:'#f87171' },
   noPred:     { color:'#f59e0b', fontSize:12 },
   ranking:    { padding:16 },
-  rankTitle:  { fontSize:20, fontWeight:700, marginBottom:12, color:'#ffd700', textAlign:'center' },
+  rankTitle:  { fontSize:20, fontWeight:700, marginBottom:4, color:'#ffd700', textAlign:'center' },
+  rankHint:   { color:'#64748b', fontSize:12, textAlign:'center', marginBottom:12 },
   carryNote:  { color:'#fed7aa', fontSize:13, textAlign:'center', marginBottom:12 },
-  rankRow:    { display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#1e293b', borderRadius:10, marginBottom:8 },
+  rankRow:    { display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#1e293b', borderRadius:10, marginBottom:4 },
   rank1:      { background:'#78350f', border:'1px solid #fbbf24' },
   rank2:      { background:'#1c1917', border:'1px solid #9ca3af' },
   rank3:      { background:'#1c1917', border:'1px solid #b45309' },
   rankPos:    { fontSize:22, width:36 },
   rankName:   { flex:1, fontSize:16, fontWeight:600 },
   rankPts:    { fontSize:18, fontWeight:700, color:'#ffd700' },
+  rankChevron:{ fontSize:12, color:'#475569' },
+  historyPanel:{ background:'#0f172a', borderRadius:'0 0 10px 10px', marginBottom:8, padding:'12px 14px', border:'1px solid #1e3a5f', borderTop:'none' },
+  historyTitle:{ color:'#93c5fd', fontWeight:700, fontSize:14, marginBottom:10, margin:'0 0 10px 0' },
+  historyItem: { background:'#1e293b', borderRadius:8, padding:'10px 12px', marginBottom:8 },
+  historyMatchName:{ color:'#e2e8f0', fontSize:13, fontWeight:600, marginBottom:8 },
+  historyRows: { display:'flex', flexDirection:'column', gap:4, marginBottom:8 },
+  historyLine: { display:'flex', alignItems:'center', gap:8, fontSize:12 },
+  historyLabel:{ color:'#64748b', width:64, flexShrink:0 },
+  historyWin:  { color:'#4ade80', flex:1 },
+  historyLose: { color:'#f87171', flex:1 },
+  historyNeutral:{ color:'#94a3b8', flex:1 },
+  historyCarry:{ color:'#fb923c', flex:1 },
+  historyDelta:{ fontWeight:700, fontSize:13, marginLeft:'auto' },
+  historyCumRow:{ display:'flex', alignItems:'center', gap:8, paddingTop:6, borderTop:'1px solid #334155' },
+  historyCumLabel:{ color:'#64748b', fontSize:11 },
+  historyCumDelta:{ fontWeight:700, fontSize:13 },
+  historyCumTotal:{ fontWeight:800, fontSize:15, marginLeft:'auto' },
   loginBox:   { maxWidth:400, margin:'60px auto', padding:24, background:'#1e293b', borderRadius:16, display:'flex', flexDirection:'column', gap:12 },
   loginTitle: { fontSize:24, fontWeight:700, color:'#ffd700', textAlign:'center' },
   loginSub:   { color:'#94a3b8', textAlign:'center', fontSize:14 },
