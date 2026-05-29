@@ -94,6 +94,17 @@ function getResult(hg, ag) {
   return 'draw';
 }
 
+// ─── 同率タイ時の決定論的ランダム抽選 ────────────────────────
+// シードが同じなら何度計算しても同じプレイヤーが選ばれる
+function seededPick(arr, seed) {
+  if (arr.length === 1) return arr[0];
+  let h = (seed * 1664525 + 1013904223) & 0xffffffff;
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  h = h ^ (h >>> 16);
+  return arr[Math.abs(h) % arr.length];
+}
+
 // ─── ポイント計算 ─────────────────────────────────────────
 function calcPoints(matches, players) {
   const pts = {};
@@ -113,15 +124,15 @@ function calcPoints(matches, players) {
     });
     if (resultWinners.length > 0) {
       const resultPool = BET_RESULT * players.length;
-      const prePts = { ...pts }; // 試合前ランキング確定用スナップショット
       players.forEach(p => { pts[p] -= BET_RESULT; });
       const share = Math.floor(resultPool / resultWinners.length);
       const rem = resultPool % resultWinners.length;
       resultWinners.forEach(p => { pts[p] += share; });
-      // 余りは試合前ランキング最下位の的中者へ
       if (rem > 0) {
-        const lowest = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
-        pts[lowest] += rem;
+        // 同率タイはシードベースの抽選で決定
+        const tied = resultWinners.filter(p => pts[p] === Math.min(...resultWinners.map(w => pts[w])));
+        const lucky = seededPick(tied, m.id * 10000 + resultPool);
+        pts[lucky] += rem;
       }
     }
 
@@ -131,15 +142,15 @@ function calcPoints(matches, players) {
       const pred = m.predictions?.[p];
       return pred && Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals;
     });
-    const prePtsScore = { ...pts }; // スコアベット前スナップショット
     players.forEach(p => { pts[p] -= BET_SCORE; });
     if (scoreWinners.length > 0) {
       const share = Math.floor(scorePool / scoreWinners.length);
       const rem = scorePool % scoreWinners.length;
       scoreWinners.forEach(p => { pts[p] += share; });
       if (rem > 0) {
-        const lowest = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
-        pts[lowest] += rem;
+        const tied = scoreWinners.filter(p => pts[p] === Math.min(...scoreWinners.map(w => pts[w])));
+        const lucky = seededPick(tied, m.id * 10000 + 1 + scorePool);
+        pts[lucky] += rem;
       }
       carryover = 0;
     } else {
@@ -170,17 +181,19 @@ function calcPlayerHistory(targetPlayer, matches, players) {
     const myResultCorrect = pred?.result === correctResult;
     const noResultWinner = resultWinners.length === 0;
     let resultDelta = 0;
+    let resultRemInfo = null;
     if (!noResultWinner) {
       const resultPool = BET_RESULT * n;
-      const prePts = { ...allPts };
       players.forEach(p => { allPts[p] -= BET_RESULT; });
       const share = Math.floor(resultPool / resultWinners.length);
       const rem = resultPool % resultWinners.length;
       resultWinners.forEach(p => { allPts[p] += share; });
       let remRecipient = null;
       if (rem > 0) {
-        remRecipient = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
+        const tied = resultWinners.filter(p => allPts[p] === Math.min(...resultWinners.map(w => allPts[w])));
+        remRecipient = seededPick(tied, m.id * 10000 + resultPool);
         allPts[remRecipient] += rem;
+        resultRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
       }
       resultDelta = myResultCorrect
         ? share - BET_RESULT + (remRecipient === targetPlayer ? rem : 0)
@@ -197,9 +210,9 @@ function calcPlayerHistory(targetPlayer, matches, players) {
       ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
       : false;
     const noScoreWinner = scoreWinners.length === 0;
-    const prePtsScore = { ...allPts };
     players.forEach(p => { allPts[p] -= BET_SCORE; });
     let scoreDelta = -BET_SCORE;
+    let scoreRemInfo = null;
     const prevCarryover = carryover;
     if (!noScoreWinner) {
       const share = Math.floor(scorePool / scoreWinners.length);
@@ -207,8 +220,10 @@ function calcPlayerHistory(targetPlayer, matches, players) {
       scoreWinners.forEach(p => { allPts[p] += share; });
       let remRecipient = null;
       if (rem > 0) {
-        remRecipient = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
+        const tied = scoreWinners.filter(p => allPts[p] === Math.min(...scoreWinners.map(w => allPts[w])));
+        remRecipient = seededPick(tied, m.id * 10000 + 1 + scorePool);
         allPts[remRecipient] += rem;
+        scoreRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
       }
       if (myScoreCorrect) {
         scoreDelta = share - BET_SCORE + (remRecipient === targetPlayer ? rem : 0);
@@ -227,6 +242,7 @@ function calcPlayerHistory(targetPlayer, matches, players) {
       myResultCorrect, myScoreCorrect,
       noResultWinner, noScoreWinner,
       usedCarryover: prevCarryover,
+      resultRemInfo, scoreRemInfo,
     });
   });
 
@@ -413,14 +429,14 @@ export default function App() {
       let resultDelta = 0;
       if (!noResultWinner) {
         const resultPool = BET_RESULT * n;
-        const prePts = { ...allPts };
         gameState.players.forEach(p => { allPts[p] -= BET_RESULT; });
         const share = Math.floor(resultPool / resultWinners.length);
         const rem = resultPool % resultWinners.length;
         resultWinners.forEach(p => { allPts[p] += share; });
         let remRecipient = null;
         if (rem > 0) {
-          remRecipient = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
+          const tied = resultWinners.filter(p => allPts[p] === Math.min(...resultWinners.map(w => allPts[w])));
+          remRecipient = seededPick(tied, m.id * 10000 + resultPool);
           allPts[remRecipient] += rem;
         }
         resultDelta = myResultCorrect
@@ -438,7 +454,6 @@ export default function App() {
         ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
         : false;
       const noScoreWinner = scoreWinners.length === 0;
-      const prePtsScore = { ...allPts };
       gameState.players.forEach(p => { allPts[p] -= BET_SCORE; });
       let scoreDelta = -BET_SCORE;
       if (!noScoreWinner) {
@@ -447,7 +462,8 @@ export default function App() {
         scoreWinners.forEach(p => { allPts[p] += share; });
         let remRecipient = null;
         if (rem > 0) {
-          remRecipient = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
+          const tied = scoreWinners.filter(p => allPts[p] === Math.min(...scoreWinners.map(w => allPts[w])));
+          remRecipient = seededPick(tied, m.id * 10000 + 1 + scorePool);
           allPts[remRecipient] += rem;
         }
         if (myScoreCorrect) {
@@ -916,6 +932,14 @@ export default function App() {
                                 {h.resultDelta === 0 ? '±0' : (h.resultDelta > 0 ? '+' : '') + h.resultDelta.toLocaleString()}pt
                               </span>
                             </div>
+                            {h.resultRemInfo && (
+                              <div style={S.historyLotteryLine}>
+                                🎲 端数{h.resultRemInfo.amount}pt
+                                {h.resultRemInfo.wasLottery ? '（同率のため抽選）' : '（最下位）'}
+                                → {h.resultRemInfo.recipient}
+                                {h.resultRemInfo.recipient === p ? ' ← あなた' : ''}
+                              </div>
+                            )}
                             <div style={S.historyLine}>
                               <span style={S.historyLabel}>スコア予想</span>
                               {h.noScoreWinner
@@ -928,6 +952,14 @@ export default function App() {
                                 {(h.scoreDelta > 0 ? '+' : '') + h.scoreDelta.toLocaleString()}pt
                               </span>
                             </div>
+                            {h.scoreRemInfo && (
+                              <div style={S.historyLotteryLine}>
+                                🎲 端数{h.scoreRemInfo.amount}pt
+                                {h.scoreRemInfo.wasLottery ? '（同率のため抽選）' : '（最下位）'}
+                                → {h.scoreRemInfo.recipient}
+                                {h.scoreRemInfo.recipient === p ? ' ← あなた' : ''}
+                              </div>
+                            )}
                           </div>
                           <div style={S.historyCumRow}>
                             <span style={S.historyCumLabel}>この試合</span>
@@ -1260,6 +1292,7 @@ function RulesSection({ S }) {
             <li>各試合、全員が <strong>1,000pt</strong> を自動的に賭ける</li>
             <li>的中者が全員分のポイントを総取り（複数いれば山分け）</li>
             <li>誰も当たらなければ全員ポイント変動なし（キャリーオーバーなし）</li>
+            <li>割り切れない端数は最下位の的中者が受け取る。同率の場合は🎲抽選で決定</li>
           </ul>
           <p style={S.rulesHeading}>🎯 スコア予想</p>
           <ul style={S.rulesList}>
@@ -1267,6 +1300,7 @@ function RulesSection({ S }) {
             <li>○対○の完全一致が的中（点差ではなく正確なスコア）</li>
             <li>的中者がポイントを総取り（複数いれば山分け）</li>
             <li>誰も当たらなければ <strong>🔥キャリーオーバー</strong>！次の的中者が積み上げ分も総取り</li>
+            <li>割り切れない端数は最下位の的中者が受け取る。同率の場合は🎲抽選で決定</li>
           </ul>
           <p style={S.rulesHeading}>📌 その他</p>
           <ul style={S.rulesList}>
@@ -1768,8 +1802,9 @@ const styles = {
   historyWin:  { color:'#4ade80', flex:1 },
   historyLose: { color:'#f87171', flex:1 },
   historyNeutral:{ color:'#94a3b8', flex:1 },
-  historyCarry:{ color:'#fb923c', flex:1 },
-  historyDelta:{ fontWeight:700, fontSize:13, marginLeft:'auto' },
+  historyCarry:      { color:'#fb923c', flex:1 },
+  historyDelta:      { fontWeight:700, fontSize:13, marginLeft:'auto' },
+  historyLotteryLine:{ color:'#a78bfa', fontSize:11, paddingLeft:64, marginTop:2 },
   historyCumRow:{ display:'flex', alignItems:'center', gap:8, paddingTop:6, borderTop:'1px solid #334155' },
   historyCumLabel:{ color:'#64748b', fontSize:11 },
   historyCumDelta:{ fontWeight:700, fontSize:13 },
