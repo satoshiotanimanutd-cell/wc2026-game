@@ -113,9 +113,16 @@ function calcPoints(matches, players) {
     });
     if (resultWinners.length > 0) {
       const resultPool = BET_RESULT * players.length;
+      const prePts = { ...pts }; // 試合前ランキング確定用スナップショット
       players.forEach(p => { pts[p] -= BET_RESULT; });
       const share = Math.floor(resultPool / resultWinners.length);
+      const rem = resultPool % resultWinners.length;
       resultWinners.forEach(p => { pts[p] += share; });
+      // 余りは試合前ランキング最下位の的中者へ
+      if (rem > 0) {
+        const lowest = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
+        pts[lowest] += rem;
+      }
     }
 
     // ─ スコアベット ─
@@ -124,10 +131,16 @@ function calcPoints(matches, players) {
       const pred = m.predictions?.[p];
       return pred && Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals;
     });
+    const prePtsScore = { ...pts }; // スコアベット前スナップショット
     players.forEach(p => { pts[p] -= BET_SCORE; });
     if (scoreWinners.length > 0) {
       const share = Math.floor(scorePool / scoreWinners.length);
+      const rem = scorePool % scoreWinners.length;
       scoreWinners.forEach(p => { pts[p] += share; });
+      if (rem > 0) {
+        const lowest = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
+        pts[lowest] += rem;
+      }
       carryover = 0;
     } else {
       carryover += BET_SCORE * players.length;
@@ -142,6 +155,8 @@ function calcPlayerHistory(targetPlayer, matches, players) {
   const history = [];
   let carryover = 0;
   let cumulative = 0;
+  const allPts = {};
+  players.forEach(p => allPts[p] = 0);
 
   matches.forEach(m => {
     if (!m.result || m.result.homeGoals === null || m.result.homeGoals === undefined) return;
@@ -156,8 +171,19 @@ function calcPlayerHistory(targetPlayer, matches, players) {
     const noResultWinner = resultWinners.length === 0;
     let resultDelta = 0;
     if (!noResultWinner) {
+      const resultPool = BET_RESULT * n;
+      const prePts = { ...allPts };
+      players.forEach(p => { allPts[p] -= BET_RESULT; });
+      const share = Math.floor(resultPool / resultWinners.length);
+      const rem = resultPool % resultWinners.length;
+      resultWinners.forEach(p => { allPts[p] += share; });
+      let remRecipient = null;
+      if (rem > 0) {
+        remRecipient = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
+        allPts[remRecipient] += rem;
+      }
       resultDelta = myResultCorrect
-        ? Math.floor(BET_RESULT * n / resultWinners.length) - BET_RESULT
+        ? share - BET_RESULT + (remRecipient === targetPlayer ? rem : 0)
         : -BET_RESULT;
     }
 
@@ -171,13 +197,27 @@ function calcPlayerHistory(targetPlayer, matches, players) {
       ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
       : false;
     const noScoreWinner = scoreWinners.length === 0;
+    const prePtsScore = { ...allPts };
+    players.forEach(p => { allPts[p] -= BET_SCORE; });
     let scoreDelta = -BET_SCORE;
-    if (!noScoreWinner && myScoreCorrect) {
-      scoreDelta = Math.floor(scorePool / scoreWinners.length) - BET_SCORE;
+    const prevCarryover = carryover;
+    if (!noScoreWinner) {
+      const share = Math.floor(scorePool / scoreWinners.length);
+      const rem = scorePool % scoreWinners.length;
+      scoreWinners.forEach(p => { allPts[p] += share; });
+      let remRecipient = null;
+      if (rem > 0) {
+        remRecipient = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
+        allPts[remRecipient] += rem;
+      }
+      if (myScoreCorrect) {
+        scoreDelta = share - BET_SCORE + (remRecipient === targetPlayer ? rem : 0);
+      }
+      carryover = 0;
+    } else {
+      carryover += BET_SCORE * n;
     }
 
-    const prevCarryover = carryover;
-    carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
     const delta = resultDelta + scoreDelta;
     cumulative += delta;
 
@@ -356,20 +396,39 @@ export default function App() {
     if (!gameState || !me) return {};
     const map = {};
     let carryover = 0;
+    const allPts = {};
+    gameState.players.forEach(p => allPts[p] = 0);
+
     gameState.matches.forEach(m => {
       if (!m.result || m.result.homeGoals === null) { return; }
       const { homeGoals, awayGoals } = m.result;
       const correctResult = getResult(homeGoals, awayGoals);
       const n = gameState.players.length;
       const pred = m.predictions?.[me];
+
+      // 勝敗予想（誰も当たらなければ変動なし）
       const resultWinners = gameState.players.filter(p => m.predictions?.[p]?.result === correctResult);
       const myResultCorrect = pred?.result === correctResult;
       const noResultWinner = resultWinners.length === 0;
-      // 誰も当たらなければ全員変動なし（ゼロサム維持）
-      const resultDelta = noResultWinner ? 0 :
-        (myResultCorrect
-          ? Math.floor(BET_RESULT * n / resultWinners.length) - BET_RESULT
-          : -BET_RESULT);
+      let resultDelta = 0;
+      if (!noResultWinner) {
+        const resultPool = BET_RESULT * n;
+        const prePts = { ...allPts };
+        gameState.players.forEach(p => { allPts[p] -= BET_RESULT; });
+        const share = Math.floor(resultPool / resultWinners.length);
+        const rem = resultPool % resultWinners.length;
+        resultWinners.forEach(p => { allPts[p] += share; });
+        let remRecipient = null;
+        if (rem > 0) {
+          remRecipient = resultWinners.reduce((a, b) => prePts[a] <= prePts[b] ? a : b);
+          allPts[remRecipient] += rem;
+        }
+        resultDelta = myResultCorrect
+          ? share - BET_RESULT + (remRecipient === me ? rem : 0)
+          : -BET_RESULT;
+      }
+
+      // スコア予想
       const scorePool = BET_SCORE * n + carryover;
       const scoreWinners = gameState.players.filter(p => {
         const pp = m.predictions?.[p];
@@ -379,10 +438,26 @@ export default function App() {
         ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
         : false;
       const noScoreWinner = scoreWinners.length === 0;
-      const scoreDelta = (scoreWinners.length > 0 && myScoreCorrect)
-        ? Math.floor(scorePool / scoreWinners.length) - BET_SCORE
-        : -BET_SCORE;
-      carryover = noScoreWinner ? carryover + BET_SCORE * n : 0;
+      const prePtsScore = { ...allPts };
+      gameState.players.forEach(p => { allPts[p] -= BET_SCORE; });
+      let scoreDelta = -BET_SCORE;
+      if (!noScoreWinner) {
+        const share = Math.floor(scorePool / scoreWinners.length);
+        const rem = scorePool % scoreWinners.length;
+        scoreWinners.forEach(p => { allPts[p] += share; });
+        let remRecipient = null;
+        if (rem > 0) {
+          remRecipient = scoreWinners.reduce((a, b) => prePtsScore[a] <= prePtsScore[b] ? a : b);
+          allPts[remRecipient] += rem;
+        }
+        if (myScoreCorrect) {
+          scoreDelta = share - BET_SCORE + (remRecipient === me ? rem : 0);
+        }
+        carryover = 0;
+      } else {
+        carryover += BET_SCORE * n;
+      }
+
       map[m.id] = { resultDelta, scoreDelta, total: resultDelta + scoreDelta, myResultCorrect, myScoreCorrect, noScoreWinner };
     });
     return map;
