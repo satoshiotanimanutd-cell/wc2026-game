@@ -850,7 +850,12 @@ export default function App() {
                             placeholder="–" />
                         </div>
                         {isSaved && hasLocalResult ? (
-                          <div style={S.savedNote}>✅ 保存済み</div>
+                          <div style={S.savedNote}>
+                            ✅ 保存済み
+                            <span style={{fontSize:11, color:'#64748b', fontWeight:400, marginLeft:8}}>
+                              （変更する場合は選び直してください）
+                            </span>
+                          </div>
                         ) : (
                           <button
                             style={{...S.confirmBtn, ...(savingMatch[m.id]||!hasLocalResult?{opacity:0.5,cursor:'default'}:{})}}
