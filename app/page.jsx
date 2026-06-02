@@ -365,6 +365,10 @@ export default function App() {
   const [saving, setSaving]     = useState(false);
   const [fetchingResults, setFetchingResults] = useState(false);
   const [msg, setMsg]           = useState('');
+  // ─ 予想入力：ローカル状態（未確定の入力） ─
+  const [localPreds, setLocalPreds] = useState({});  // { matchId: { result, homeGoals, awayGoals } }
+  const [predsReady, setPredsReady] = useState(false); // localPredsの初期化完了フラグ
+  const [savingMatch, setSavingMatch] = useState({});  // { matchId: bool }
 
   // ─ 初期ロード ─
   useEffect(() => {
@@ -454,20 +458,21 @@ export default function App() {
   // ─ ランキング：クリックで変遷表示するプレイヤー ─
   const [selectedRankPlayer, setSelectedRankPlayer] = useState(null);
 
-  // ─ 自分の最新予想を常に保持するref（競合防止） ─
-  const myPredsRef = useRef({});      // { matchId: { result, homeGoals, awayGoals } }
-  const pendingSaveRef = useRef(null); // デバウンス用タイマー
-
-  // ログイン時にrefを初期化（サーバーに既存予想があれば読み込む）
+  // ─ localPredsの初期化：meとgameStateが揃ったタイミングで1度だけ実行 ─
+  // （me変更時はリセット → meとgameStateが両方揃ったら既存予想を読み込む）
   useEffect(() => {
-    if (!me) { myPredsRef.current = {}; return; }
-    if (!gameState?.matches) return;
+    if (!me) { setLocalPreds({}); setPredsReady(false); return; }
+  }, [me]);
+
+  useEffect(() => {
+    if (!me || !gameState?.matches || predsReady) return;
     const init = {};
     gameState.matches.forEach(m => {
       if (m.predictions?.[me]) init[m.id] = { ...m.predictions[me] };
     });
-    myPredsRef.current = init;
-  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+    setLocalPreds(init);
+    setPredsReady(true);
+  }, [me, gameState, predsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function checkServerPlayers() {
     setPollStatus('確認中...');
@@ -618,52 +623,49 @@ export default function App() {
     />;
   }
 
-  // ─ プレイヤー予想入力（ref + デバウンスで競合を完全防止） ─
-  function setPrediction(matchId, field, value) {
-    // ① refを即座に更新（常に全フィールドの最新値を保持）
-    myPredsRef.current = {
-      ...myPredsRef.current,
-      [matchId]: { ...(myPredsRef.current[matchId] || {}), [field]: value },
-    };
-
-    // ② UIを即座に更新（functional updateで陳腐化なし）
-    setGameState(prev => ({
+  // ─ プレイヤー予想入力（ローカル状態のみ更新。確定ボタンで保存） ─
+  function setLocalPred(matchId, field, value) {
+    setLocalPreds(prev => ({
       ...prev,
-      matches: prev.matches.map(m =>
-        m.id === matchId
-          ? { ...m, predictions: { ...m.predictions, [me]: myPredsRef.current[matchId] } }
-          : m
-      ),
+      [matchId]: { ...(prev[matchId] || {}), [field]: value },
     }));
-
-    // ③ 500ms後にサーバー保存（デバウンス：連続入力でも1回だけ保存）
-    if (pendingSaveRef.current) clearTimeout(pendingSaveRef.current);
-    pendingSaveRef.current = setTimeout(doSavePredictions, 500);
   }
 
-  async function doSavePredictions() {
-    setSaving(true);
+  // ─ 予想の確定保存（1試合分だけサーバーに保存）─
+  async function confirmPrediction(matchId) {
+    setSavingMatch(prev => ({ ...prev, [matchId]: true }));
     try {
-      // サーバーの最新データを取得（他プレイヤーの予想を拾うため）
+      // サーバーの最新データを取得（他プレイヤーの予想を保護するため）
       const res = await fetch('/api/game-state?' + Date.now(), {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
       });
       const serverState = await res.json();
-      const serverValid = serverState && Array.isArray(serverState.players) && serverState.players.length > 0;
-      if (!serverValid) { setSaving(false); return; }
+      if (!serverState?.players?.length) {
+        setSavingMatch(prev => ({ ...prev, [matchId]: false }));
+        return;
+      }
 
-      // サーバーをベースに、refの最新予想でマージ（古いスナップショットを使わない）
+      // この試合だけ自分の予想を更新（他の試合は一切触らない）
+      const myPred = localPreds[matchId] || {};
+      // スコアは両方入力されていて空でない場合のみ保存
+      const hg = (myPred.homeGoals !== '' && myPred.homeGoals !== undefined && myPred.homeGoals !== null)
+        ? myPred.homeGoals : null;
+      const ag = (myPred.awayGoals !== '' && myPred.awayGoals !== undefined && myPred.awayGoals !== null)
+        ? myPred.awayGoals : null;
+      const hasScore = hg !== null && ag !== null;
+      const savePred = {};
+      if (myPred.result) savePred.result = myPred.result;
+      if (hasScore) { savePred.homeGoals = hg; savePred.awayGoals = ag; }
+
       const mergedMatches = serverState.matches.map(sm => {
+        if (sm.id !== matchId) return sm; // 他の試合は絶対に変更しない
         const newPreds = { ...sm.predictions };
-        const myPred = myPredsRef.current[sm.id];
-        if (myPred && Object.keys(myPred).length > 0) newPreds[me] = myPred;
+        if (Object.keys(savePred).length > 0) newPreds[me] = savePred;
         else delete newPreds[me];
         return { ...sm, predictions: newPreds };
       });
       const merged = { ...serverState, matches: mergedMatches };
-
-      // UIも最新サーバーデータ（他プレイヤー分）で更新
       setGameState(merged);
 
       const saveRes = await fetch('/api/game-state', {
@@ -675,9 +677,12 @@ export default function App() {
         let errDetail = '';
         try { const eb = await saveRes.json(); errDetail = eb.error || ''; } catch {}
         setMsg(`⚠️ 保存に失敗しました（${saveRes.status}${errDetail ? ': ' + errDetail : ''}）`);
+      } else {
+        setMsg('✅ 予想を保存しました');
+        setTimeout(() => setMsg(m => m === '✅ 予想を保存しました' ? '' : m), 2000);
       }
     } catch (e) { setMsg('⚠️ 保存に失敗しました: ' + e.message); }
-    setSaving(false);
+    setSavingMatch(prev => ({ ...prev, [matchId]: false }));
   }
 
   // ─ 管理者：結果入力 ─
@@ -811,31 +816,57 @@ export default function App() {
                   )}
 
                   {/* 予想入力（キックオフ前・プレイヤーのみ） */}
-                  {!locked && !isAdmin && !hasResult && (
-                    <div style={S.predRow}>
-                      <div style={S.resultBtns}>
-                        {[{v:'home',l:`${m.home}勝ち`},{v:'draw',l:'引き分け'},{v:'away',l:`${m.away}勝ち`}].map(opt => (
-                          <button key={opt.v}
-                            style={{...S.resBtn, ...(myPred.result===opt.v?S.resBtnActive:{})}}
-                            onClick={() => setPrediction(m.id, 'result', opt.v)}>
-                            {opt.l}
+                  {!locked && !isAdmin && !hasResult && (() => {
+                    const lp = localPreds[m.id] || {};
+                    const serverPred = m.predictions?.[me];
+                    // サーバー保存済みの予想とローカルが一致しているか確認
+                    const isSaved = serverPred?.result === lp.result
+                      && String(serverPred?.homeGoals ?? '') === String(lp.homeGoals ?? '')
+                      && String(serverPred?.awayGoals ?? '') === String(lp.awayGoals ?? '');
+                    const hasLocalResult = !!lp.result;
+                    return (
+                      <div style={S.predRow}>
+                        <div style={S.resultBtns}>
+                          {[{v:'home',l:`${m.home}勝ち`},{v:'draw',l:'引き分け'},{v:'away',l:`${m.away}勝ち`}].map(opt => (
+                            <button key={opt.v}
+                              style={{...S.resBtn, ...(lp.result===opt.v?S.resBtnActive:{})}}
+                              onClick={() => setLocalPred(m.id, 'result', opt.v)}>
+                              {opt.l}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={S.scoreRow}>
+                          <span style={S.scoreLabel}>スコア予想:</span>
+                          <input type="number" min="0" max="20"
+                            value={lp.homeGoals ?? ''}
+                            style={S.scoreInput}
+                            onChange={e => setLocalPred(m.id, 'homeGoals', e.target.value)}
+                            placeholder="–" />
+                          <span style={S.scoreSep}>-</span>
+                          <input type="number" min="0" max="20"
+                            value={lp.awayGoals ?? ''}
+                            style={S.scoreInput}
+                            onChange={e => setLocalPred(m.id, 'awayGoals', e.target.value)}
+                            placeholder="–" />
+                        </div>
+                        {isSaved && hasLocalResult ? (
+                          <div style={S.savedNote}>✅ 保存済み</div>
+                        ) : (
+                          <button
+                            style={{...S.confirmBtn, ...(savingMatch[m.id]||!hasLocalResult?{opacity:0.5,cursor:'default'}:{})}}
+                            onClick={() => { if (!savingMatch[m.id] && hasLocalResult) confirmPrediction(m.id); }}
+                            disabled={savingMatch[m.id] || !hasLocalResult}>
+                            {savingMatch[m.id] ? '⏳ 保存中...' : '✅ 確定する'}
                           </button>
-                        ))}
+                        )}
+                        {!hasLocalResult && (
+                          <p style={{color:'#64748b', fontSize:11, textAlign:'center', margin:'4px 0 0'}}>
+                            ※ 勝敗を選んでから確定してください
+                          </p>
+                        )}
                       </div>
-                      <div style={S.scoreRow}>
-                        <span style={S.scoreLabel}>スコア予想:</span>
-                        <input type="number" min="0" max="20" value={myPred.homeGoals ?? ''}
-                          style={S.scoreInput}
-                          onChange={e => setPrediction(m.id, 'homeGoals', e.target.value)}
-                          placeholder="0" />
-                        <span style={S.scoreSep}>-</span>
-                        <input type="number" min="0" max="20" value={myPred.awayGoals ?? ''}
-                          style={S.scoreInput}
-                          onChange={e => setPrediction(m.id, 'awayGoals', e.target.value)}
-                          placeholder="0" />
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* ロック済み・結果前：自分の予想を読み取り専用で表示 */}
                   {locked && !hasResult && !isAdmin && (
@@ -1873,10 +1904,12 @@ const styles = {
   resultBtns: { display:'flex', gap:6, marginBottom:8, flexWrap:'wrap' },
   resBtn:     { flex:1, padding:'7px 4px', borderRadius:8, border:'1px solid #334155', background:'#0f172a', color:'#94a3b8', cursor:'pointer', fontSize:12, minWidth:80 },
   resBtnActive:{ background:'#1d4ed8', borderColor:'#1d4ed8', color:'#fff' },
-  scoreRow:   { display:'flex', alignItems:'center', gap:8 },
+  scoreRow:   { display:'flex', alignItems:'center', gap:8, marginBottom:8 },
   scoreLabel: { color:'#94a3b8', fontSize:12, whiteSpace:'nowrap' },
   scoreInput: { width:52, padding:'6px', borderRadius:6, border:'1px solid #334155', background:'#0f172a', color:'#fff', textAlign:'center', fontSize:16 },
   scoreSep:   { color:'#64748b', fontSize:18 },
+  confirmBtn: { width:'100%', padding:'10px', borderRadius:8, background:'#059669', color:'#fff', border:'none', cursor:'pointer', fontSize:15, fontWeight:700 },
+  savedNote:  { color:'#4ade80', fontSize:12, textAlign:'center', padding:'8px 0', fontWeight:600 },
   allPreds:   { marginTop:10, display:'flex', flexDirection:'column', gap:4 },
   playerPred: { display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderTop:'1px solid #1e293b' },
   predName:   { color:'#94a3b8', fontSize:12, width:80, flexShrink:0 },
