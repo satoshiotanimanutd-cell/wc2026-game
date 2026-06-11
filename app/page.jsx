@@ -1597,7 +1597,35 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
   const [newNames, setNewNames]   = useState(['','','','','']);
   const [confirmReset, setConfirmReset] = useState(false);
   const [showRaw, setShowRaw]     = useState(false);
+  const [blobInfo, setBlobInfo]   = useState(null);   // { count, totalSizeMB }
+  const [blobDeleting, setBlobDeleting] = useState(false);
   const S = styles;
+
+  // Blob容量確認
+  async function checkBlob() {
+    try {
+      const res = await fetch('/api/cleanup-blobs');
+      const data = await res.json();
+      setBlobInfo(data);
+    } catch { setBlobInfo({ error: '確認失敗' }); }
+  }
+
+  // Blob全削除
+  async function deleteAllBlobs() {
+    if (!window.confirm(`Vercel Blobに残っている古いファイル ${blobInfo?.count || ''}件を全て削除しますか？\n（現在のゲームデータ＝Redisには影響しません）`)) return;
+    setBlobDeleting(true);
+    try {
+      const res = await fetch('/api/cleanup-blobs', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        alert(`✅ ${data.deleted}件のファイルを削除しました。Vercel Blobの容量が解放されます。`);
+        setBlobInfo(null);
+      } else {
+        alert('⚠️ 削除に失敗しました: ' + data.error);
+      }
+    } catch (e) { alert('⚠️ エラー: ' + e.message); }
+    setBlobDeleting(false);
+  }
   const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
   const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
   const passwords = gameState.playerPasswords || {};
@@ -1644,6 +1672,35 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
           <button style={{...S.fetchBtn, fontSize:12, padding:'5px 12px'}} onClick={onReload}>
             🔄 サーバーから再読み込み
           </button>
+        </div>
+
+        {/* Blob容量クリーンアップ */}
+        <div style={{background:'#0f172a', borderRadius:8, padding:'12px 14px', marginBottom:16}}>
+          <p style={{color:'#fbbf24', fontSize:12, fontWeight:700, marginBottom:6}}>🗑️ Vercel Blob 容量クリーンアップ</p>
+          <p style={{color:'#94a3b8', fontSize:12, marginBottom:8}}>
+            以前のデータ保存方式（Vercel Blob）の残留ファイルを削除します。<br/>
+            現在のゲームデータ（Redis）には影響しません。
+          </p>
+          {!blobInfo ? (
+            <button style={{...S.fetchBtn, fontSize:12, padding:'6px 14px', background:'#1d4ed8'}}
+              onClick={checkBlob}>
+              🔍 残留ファイルを確認する
+            </button>
+          ) : blobInfo.error ? (
+            <p style={{color:'#f87171', fontSize:12}}>{blobInfo.error}</p>
+          ) : blobInfo.count === 0 ? (
+            <p style={{color:'#4ade80', fontSize:12}}>✅ 残留ファイルはありません</p>
+          ) : (
+            <div>
+              <p style={{color:'#f87171', fontSize:13, fontWeight:700, marginBottom:8}}>
+                ⚠️ {blobInfo.count}件 / {blobInfo.totalSizeMB}MB の古いファイルが残っています
+              </p>
+              <button style={{...S.fetchBtn, background:'#dc2626', fontSize:13}}
+                onClick={deleteAllBlobs} disabled={blobDeleting}>
+                {blobDeleting ? '削除中...' : '🗑️ 全て削除して容量を解放する'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* パスワード管理 */}
