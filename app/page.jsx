@@ -873,20 +873,33 @@ export default function App() {
                     );
                   })()}
 
-                  {/* ロック済み・結果前：自分の予想を読み取り専用で表示 */}
+                  {/* ロック済み・結果前：全員の予想を表示 */}
                   {locked && !hasResult && !isAdmin && (
-                    <div style={{padding:'10px 0', borderTop:'1px solid #1e293b', marginTop:6}}>
-                      <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>🔒 締切済み・結果待ち</p>
-                      {myPred.result ? (
-                        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                          <span style={{...S.resBtn, ...S.resBtnActive, cursor:'default', opacity:0.8}}>
-                            {myPred.result==='home'?`${m.home}勝ち`:myPred.result==='away'?`${m.away}勝ち`:'引き分け'}
-                          </span>
-                          <span style={{color:'#94a3b8', fontSize:13}}>
-                            スコア: {myPred.homeGoals??'?'} - {myPred.awayGoals??'?'}
-                          </span>
-                        </div>
-                      ) : <span style={S.noPred}>⚠️ 未予想</span>}
+                    <div style={{borderTop:'1px solid #1e293b', marginTop:8, paddingTop:10}}>
+                      <p style={{color:'#64748b', fontSize:11, marginBottom:6}}>🔒 締切済み・結果待ち — 全員の予想</p>
+                      <div style={S.allPreds}>
+                        {gameState.players.map(p => {
+                          const pred = m.predictions?.[p];
+                          const isMe = p === me;
+                          return (
+                            <div key={p} style={S.playerPred}>
+                              <span style={{...S.predName, ...(isMe?{color:'#93c5fd', fontWeight:700}:{})}}>
+                                {p}{isMe ? ' 👤' : ''}
+                              </span>
+                              {pred?.result ? (
+                                <>
+                                  <span style={S.predResult}>
+                                    {pred.result==='home'?`${m.home}勝ち`:pred.result==='away'?`${m.away}勝ち`:'引き分け'}
+                                  </span>
+                                  <span style={S.predScore}>
+                                    {pred.homeGoals??'?'}-{pred.awayGoals??'?'}
+                                  </span>
+                                </>
+                              ) : <span style={S.noPred}>⚠️ 未予想</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
