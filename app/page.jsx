@@ -193,6 +193,19 @@ function fmtTime(iso) {
 function isLocked(kickoff) {
   return new Date() >= new Date(kickoff);
 }
+
+// 今日の試合日付、なければ直近の試合日付を返す
+function getTodayOrNearestDate() {
+  const now = new Date();
+  const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
+  const allDates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
+  if (allDates.includes(todayStr)) return todayStr;
+  // 直近の未来の試合日
+  const next = ALL_MATCHES.find(m => new Date(m.kickoff) > now);
+  if (next) return fmtDate(next.kickoff);
+  // 全試合終了後は最終日
+  return allDates[allDates.length - 1];
+}
 function getResult(hg, ag) {
   if (hg > ag) return 'home';
   if (hg < ag) return 'away';
@@ -405,8 +418,7 @@ export default function App() {
       if (data && data.players && data.players.length > 0) {
         setGameState(data);
         backupPlayers(data.players, data.playerPasswords); // localStorageにもバックアップ
-        const firstDate = fmtDate(ALL_MATCHES[0].kickoff);
-        setSelDate(data.selDate || firstDate);
+        setSelDate(getTodayOrNearestDate());
         // ログイン中のプレイヤーがリストに存在しない場合は自動ログアウト
         const savedPlayer = localStorage.getItem('wc2026_player');
         if (savedPlayer && savedPlayer !== '__admin__' && !data.players.includes(savedPlayer)) {
@@ -417,13 +429,13 @@ export default function App() {
         // Vercel Blobが空 → localStorageのバックアップを確認
         const { players, passwords } = restorePlayers();
         setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
-        setSelDate(fmtDate(ALL_MATCHES[0].kickoff));
+        setSelDate(getTodayOrNearestDate());
       }
     } catch {
       // 通信エラー時もlocalStorageから復元
       const { players, passwords } = restorePlayers();
       setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
-      setSelDate(fmtDate(ALL_MATCHES[0].kickoff));
+      setSelDate(getTodayOrNearestDate());
     }
     setLoading(false);
   }
@@ -1606,7 +1618,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 
 // ─── 管理者ビュー ──────────────────────────────────────────
 function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload }) {
-  const [adminDate, setAdminDate] = useState(fmtDate(ALL_MATCHES[0].kickoff));
+  const [adminDate, setAdminDate] = useState(getTodayOrNearestDate());
   const [newNames, setNewNames]   = useState(['','','','','']);
   const [confirmReset, setConfirmReset] = useState(false);
   const [showRaw, setShowRaw]     = useState(false);
