@@ -464,6 +464,18 @@ export default function App() {
     return success;
   }
 
+  // ─ 次の試合へのスクロール用ref ─
+  const nextMatchRef = useRef(null);
+
+  // 日付タブが切り替わったら次の試合へスクロール
+  useEffect(() => {
+    if (!nextMatchRef.current) return;
+    const timer = setTimeout(() => {
+      nextMatchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selDate]);
+
   // ─ プレイヤー未登録時：5秒ごとにサーバーを自動確認 ─
   const [pollStatus, setPollStatus] = useState('');
 
@@ -799,13 +811,18 @@ export default function App() {
 
           {/* 試合カード */}
           <div style={S.matchList}>
+            {(() => { nextMatchRef.current = null; })()}
             {todayMatches.map(m => {
               const locked = isLocked(m.kickoff);
               const myPred = m.predictions?.[me] || {};
               const hasResult = m.result !== null && m.result?.homeGoals !== undefined;
+              // 結果未入力の最初の試合をスクロール対象にする
+              const isNextTarget = !hasResult;
 
               return (
-                <div key={m.id} style={{...S.matchCard, ...(hasResult?S.matchCardDone:{})}}>
+                <div key={m.id}
+                  ref={isNextTarget && !nextMatchRef.current ? (el => { if (el) nextMatchRef.current = el; }) : null}
+                  style={{...S.matchCard, ...(hasResult?S.matchCardDone:{})}}>
                   <div style={S.matchMeta}>
                     <span style={S.stageBadge}>{m.stage}</span>
                     <span style={S.kickoffTime}>{fmtTime(m.kickoff)} JST</span>
@@ -1660,6 +1677,71 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
     <div style={S.adminWrap}>
       <h2 style={S.adminTitle}>🔐 管理者パネル</h2>
 
+      {/* 手動入力（最優先で一番上） */}
+      <div style={S.adminSection}>
+        <h3 style={S.sectionTitle}>✏️ 結果を手動入力</h3>
+        <div style={S.dateTabs}>
+          {dates.map(d => (
+            <button key={d} style={{...S.dateTab, ...(adminDate===d?S.dateTabActive:{})}}
+              onClick={() => setAdminDate(d)}>{d}</button>
+          ))}
+        </div>
+        {dayMatches.map(m => {
+          const locked = isLocked(m.kickoff);
+          return (
+            <div key={m.id} style={S.adminMatchCard}>
+              <div style={S.adminMatchHeader}>
+                <span style={S.stageBadge}>{m.stage}</span>
+                <span style={S.kickoffTime}>{fmtTime(m.kickoff)}</span>
+              </div>
+              {m.home === 'TBD' || m.away === 'TBD' ? (
+                <div style={S.tbdRow}>
+                  <input style={S.tbdInput} value={m.home} placeholder="ホームチーム"
+                    onChange={e => onSetTeam(m.id, 'home', e.target.value)} />
+                  <span style={S.vs}>VS</span>
+                  <input style={S.tbdInput} value={m.away} placeholder="アウェイチーム"
+                    onChange={e => onSetTeam(m.id, 'away', e.target.value)} />
+                </div>
+              ) : (
+                <div style={S.teams}>
+                  <span style={S.teamName}>{m.home}</span>
+                  <span style={S.vs}>VS</span>
+                  <span style={S.teamName}>{m.away}</span>
+                </div>
+              )}
+              {locked && (
+                <div style={S.resultInputRow}>
+                  <span style={S.scoreLabel}>結果:</span>
+                  <input type="number" min="0" max="20"
+                    defaultValue={m.result?.homeGoals ?? ''}
+                    style={S.scoreInput}
+                    onBlur={e => {
+                      const ag = document.getElementById(`ag-${m.id}`);
+                      if (e.target.value !== '' && ag?.value !== '') {
+                        onSetResult(m.id, e.target.value, ag.value);
+                      }
+                    }} />
+                  <span style={S.scoreSep}>-</span>
+                  <input id={`ag-${m.id}`} type="number" min="0" max="20"
+                    defaultValue={m.result?.awayGoals ?? ''}
+                    style={S.scoreInput}
+                    onBlur={e => {
+                      const hg = e.target.previousSibling?.previousSibling;
+                      if (e.target.value !== '' && hg?.value !== '') {
+                        onSetResult(m.id, hg.value, e.target.value);
+                      }
+                    }} />
+                  {m.result?.homeGoals !== undefined && (
+                    <span style={S.savedBadge}>✅ {m.result.homeGoals}-{m.result.awayGoals}</span>
+                  )}
+                </div>
+              )}
+              {!locked && <span style={{color:'#666', fontSize:12}}>⏳ キックオフ前</span>}
+            </div>
+          );
+        })}
+      </div>
+
       {/* ─ 予想状況 ─ */}
       <div style={S.adminSection}>
         <h3 style={S.sectionTitle}>📋 予想状況</h3>
@@ -1885,73 +1967,6 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
         </button>
       </div>
 
-      {/* 手動入力 */}
-      <div style={S.adminSection}>
-        <h3 style={S.sectionTitle}>✏️ 結果を手動入力</h3>
-        <div style={S.dateTabs}>
-          {dates.map(d => (
-            <button key={d} style={{...S.dateTab, ...(adminDate===d?S.dateTabActive:{})}}
-              onClick={() => setAdminDate(d)}>{d}</button>
-          ))}
-        </div>
-        {dayMatches.map(m => {
-          const locked = isLocked(m.kickoff);
-          return (
-            <div key={m.id} style={S.adminMatchCard}>
-              <div style={S.adminMatchHeader}>
-                <span style={S.stageBadge}>{m.stage}</span>
-                <span style={S.kickoffTime}>{fmtTime(m.kickoff)}</span>
-              </div>
-
-              {/* ノックアウト：チーム名変更 */}
-              {m.home === 'TBD' || m.away === 'TBD' ? (
-                <div style={S.tbdRow}>
-                  <input style={S.tbdInput} value={m.home} placeholder="ホームチーム"
-                    onChange={e => onSetTeam(m.id, 'home', e.target.value)} />
-                  <span style={S.vs}>VS</span>
-                  <input style={S.tbdInput} value={m.away} placeholder="アウェイチーム"
-                    onChange={e => onSetTeam(m.id, 'away', e.target.value)} />
-                </div>
-              ) : (
-                <div style={S.teams}>
-                  <span style={S.teamName}>{m.home}</span>
-                  <span style={S.vs}>VS</span>
-                  <span style={S.teamName}>{m.away}</span>
-                </div>
-              )}
-
-              {locked && (
-                <div style={S.resultInputRow}>
-                  <span style={S.scoreLabel}>結果:</span>
-                  <input type="number" min="0" max="20"
-                    defaultValue={m.result?.homeGoals ?? ''}
-                    style={S.scoreInput}
-                    onBlur={e => {
-                      const ag = document.getElementById(`ag-${m.id}`);
-                      if (e.target.value !== '' && ag?.value !== '') {
-                        onSetResult(m.id, e.target.value, ag.value);
-                      }
-                    }} />
-                  <span style={S.scoreSep}>-</span>
-                  <input id={`ag-${m.id}`} type="number" min="0" max="20"
-                    defaultValue={m.result?.awayGoals ?? ''}
-                    style={S.scoreInput}
-                    onBlur={e => {
-                      const hg = e.target.previousSibling?.previousSibling;
-                      if (e.target.value !== '' && hg?.value !== '') {
-                        onSetResult(m.id, hg.value, e.target.value);
-                      }
-                    }} />
-                  {m.result?.homeGoals !== undefined && (
-                    <span style={S.savedBadge}>✅ {m.result.homeGoals}-{m.result.awayGoals}</span>
-                  )}
-                </div>
-              )}
-              {!locked && <span style={{color:'#666', fontSize:12}}>⏳ キックオフ前</span>}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
