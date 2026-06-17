@@ -532,10 +532,10 @@ export default function App() {
     return () => clearInterval(timer);
   }, [gameState?.players?.length, isAdmin]);
 
-  // ─ 日付リスト（新しい日付が左・古い日付が右） ─
+  // ─ 日付リスト ─
   const dates = useMemo(() => {
     const set = new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)));
-    return [...set].reverse(); // 逆順：今日/未来が左、過去が右
+    return [...set]; // 古い日付が左・新しい日付が右
   }, []);
 
   const todayMatches = useMemo(() => {
@@ -1688,7 +1688,7 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
     } catch (e) { alert('⚠️ エラー: ' + e.message); }
     setBlobDeleting(false);
   }
-  const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))].reverse();
+  const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
   const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
   const passwords = gameState.playerPasswords || {};
   const champPicks = gameState.championPicks || {};
