@@ -115,6 +115,31 @@ const ALL_MATCHES = [
   {id:104,home:'TBD',away:'TBD', kickoff:'2026-07-20T04:00:00+09:00', stage:'決勝'},
 ];
 
+// ─── 放送チャンネル（地上波のみ記載、それ以外は NHK BS/DAZN） ─────────────
+const CHANNELS = {
+  10: 'NHK総合',
+  17: 'フジテレビ',
+  19: 'NHK総合',
+  25: '日テレ',
+  28: 'NHK総合',
+  29: 'NHK総合',
+  30: 'フジテレビ',
+  31: 'NHK総合',
+  34: '日テレ',
+  36: '日テレ・NHK BS',
+  43: 'NHK総合',
+  45: 'NHK総合',
+  47: 'フジテレビ',
+  48: '日テレ',
+  58: 'NHK総合',
+  59: '日テレ',
+  65: 'フジテレビ',
+  69: 'フジテレビ',
+};
+function getChannel(matchId) {
+  return CHANNELS[matchId] || 'NHK BS/DAZN';
+}
+
 const BET_RESULT = 1000;
 const BET_SCORE  = 500;
 const ADMIN_PW   = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '4818';
@@ -839,6 +864,7 @@ export default function App() {
                   <div style={S.matchMeta}>
                     <span style={S.stageBadge}>{m.stage}</span>
                     <span style={S.kickoffTime}>{fmtTime(m.kickoff)} JST</span>
+                    <span style={S.channelBadge}>{getChannel(m.id)}</span>
                     {locked && !hasResult && <span style={S.lockBadge}>🔒 締切</span>}
                     {hasResult && <span style={S.doneBadge}>✅ 結果済</span>}
                   </div>
@@ -1715,6 +1741,7 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
               <div style={S.adminMatchHeader}>
                 <span style={S.stageBadge}>{m.stage}</span>
                 <span style={S.kickoffTime}>{fmtTime(m.kickoff)}</span>
+                <span style={S.channelBadge}>{getChannel(m.id)}</span>
               </div>
               {m.home === 'TBD' || m.away === 'TBD' ? (
                 <div style={S.tbdRow}>
@@ -2017,6 +2044,7 @@ const styles = {
   matchMeta:  { display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' },
   stageBadge: { background:'#1e40af', color:'#bfdbfe', padding:'2px 8px', borderRadius:10, fontSize:11 },
   kickoffTime:{ color:'#94a3b8', fontSize:12 },
+  channelBadge:{ background:'#1e3a5f', color:'#93c5fd', padding:'2px 7px', borderRadius:10, fontSize:11 },
   lockBadge:  { color:'#fbbf24', fontSize:12 },
   doneBadge:  { color:'#34d399', fontSize:12 },
   teams:      { display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 },
