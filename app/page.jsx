@@ -194,16 +194,12 @@ function isLocked(kickoff) {
   return new Date() >= new Date(kickoff);
 }
 
-// 今日の試合日付、なければ直近の試合日付を返す
-function getTodayOrNearestDate() {
-  const now = new Date();
-  const todayStr = `${now.getMonth()+1}/${now.getDate()}`;
-  const allDates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
-  if (allDates.includes(todayStr)) return todayStr;
-  // 直近の未来の試合日
-  const next = ALL_MATCHES.find(m => new Date(m.kickoff) > now);
-  if (next) return fmtDate(next.kickoff);
+// まだ結果が出ていない最初の試合の日付を返す
+function getFirstUnresultedDate(matches) {
+  const unresulted = matches?.find(m => !m.result || m.result.homeGoals === null || m.result.homeGoals === undefined);
+  if (unresulted) return fmtDate(unresulted.kickoff);
   // 全試合終了後は最終日
+  const allDates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
   return allDates[allDates.length - 1];
 }
 function getResult(hg, ag) {
@@ -418,7 +414,7 @@ export default function App() {
       if (data && data.players && data.players.length > 0) {
         setGameState(data);
         backupPlayers(data.players, data.playerPasswords); // localStorageにもバックアップ
-        setSelDate(getTodayOrNearestDate());
+        setSelDate(getFirstUnresultedDate(data.matches));
         // ログイン中のプレイヤーがリストに存在しない場合は自動ログアウト
         const savedPlayer = localStorage.getItem('wc2026_player');
         if (savedPlayer && savedPlayer !== '__admin__' && !data.players.includes(savedPlayer)) {
@@ -429,13 +425,13 @@ export default function App() {
         // Vercel Blobが空 → localStorageのバックアップを確認
         const { players, passwords } = restorePlayers();
         setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
-        setSelDate(getTodayOrNearestDate());
+        setSelDate(getFirstUnresultedDate(null));
       }
     } catch {
       // 通信エラー時もlocalStorageから復元
       const { players, passwords } = restorePlayers();
       setGameState({ players, matches: initMatches(), carryover: 0, playerPasswords: passwords });
-      setSelDate(getTodayOrNearestDate());
+      setSelDate(getFirstUnresultedDate(null));
     }
     setLoading(false);
   }
@@ -463,6 +459,18 @@ export default function App() {
     setSaving(false);
     return success;
   }
+
+  // ─ 日付タブのスクロール用ref ─
+  const dateTabsContainerRef = useRef(null);
+  const selectedDateTabRef   = useRef(null);
+
+  // 選択中の日付タブが見えるようにタブバーをスクロール
+  useEffect(() => {
+    if (!dateTabsContainerRef.current || !selectedDateTabRef.current) return;
+    const container = dateTabsContainerRef.current;
+    const tab = selectedDateTabRef.current;
+    container.scrollLeft = tab.offsetLeft - 8;
+  }, [selDate]);
 
   // ─ 次の試合へのスクロール用ref ─
   const nextMatchRef = useRef(null);
@@ -506,7 +514,7 @@ export default function App() {
       if (data && data.players && data.players.length > 0) {
         setGameState(data);
         backupPlayers(data.players, data.playerPasswords);
-        setSelDate(data.selDate || fmtDate(ALL_MATCHES[0].kickoff));
+        setSelDate(getFirstUnresultedDate(data.matches));
         setPollStatus('');
       } else {
         const now = new Date();
@@ -524,10 +532,10 @@ export default function App() {
     return () => clearInterval(timer);
   }, [gameState?.players?.length, isAdmin]);
 
-  // ─ 日付リスト ─
+  // ─ 日付リスト（新しい日付が左・古い日付が右） ─
   const dates = useMemo(() => {
     const set = new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)));
-    return [...set];
+    return [...set].reverse(); // 逆順：今日/未来が左、過去が右
   }, []);
 
   const todayMatches = useMemo(() => {
@@ -795,13 +803,16 @@ export default function App() {
       {/* ─ 試合一覧 ─ */}
       {view === 'matches' && (
         <div>
-          {/* 日付タブ */}
-          <div style={S.dateTabs}>
+          {/* 日付タブ（逆順：今日/未来が左、過去が右） */}
+          <div ref={dateTabsContainerRef} style={S.dateTabs}>
             {dates.map(d => {
               const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === d);
               const allDone = dayMatches.every(m => m.result !== null);
+              const isSelected = selDate === d;
               return (
-                <button key={d} style={{...S.dateTab, ...(selDate===d?S.dateTabActive:{}), ...(allDone?S.dateTabDone:{})}}
+                <button key={d}
+                  ref={isSelected ? selectedDateTabRef : null}
+                  style={{...S.dateTab, ...(isSelected?S.dateTabActive:{}), ...(allDone?S.dateTabDone:{})}}
                   onClick={() => setSelDate(d)}>
                   {d}
                 </button>
@@ -811,17 +822,19 @@ export default function App() {
 
           {/* 試合カード */}
           <div style={S.matchList}>
-            {(() => { nextMatchRef.current = null; })()}
-            {todayMatches.map(m => {
+            {todayMatches.map((m, idx) => {
               const locked = isLocked(m.kickoff);
               const myPred = m.predictions?.[me] || {};
               const hasResult = m.result !== null && m.result?.homeGoals !== undefined;
               // 結果未入力の最初の試合をスクロール対象にする
-              const isNextTarget = !hasResult;
+              const firstUnresultedIdx = todayMatches.findIndex(tm =>
+                !tm.result || tm.result.homeGoals === null || tm.result.homeGoals === undefined
+              );
+              const isNextTarget = idx === firstUnresultedIdx;
 
               return (
                 <div key={m.id}
-                  ref={isNextTarget && !nextMatchRef.current ? (el => { if (el) nextMatchRef.current = el; }) : null}
+                  ref={isNextTarget ? nextMatchRef : null}
                   style={{...S.matchCard, ...(hasResult?S.matchCardDone:{})}}>
                   <div style={S.matchMeta}>
                     <span style={S.stageBadge}>{m.stage}</span>
@@ -1635,7 +1648,14 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 
 // ─── 管理者ビュー ──────────────────────────────────────────
 function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload }) {
-  const [adminDate, setAdminDate] = useState(getTodayOrNearestDate());
+  const [adminDate, setAdminDate] = useState(getFirstUnresultedDate(gameState.matches));
+  const adminDateTabsRef = useRef(null);
+  const adminSelectedTabRef = useRef(null);
+
+  useEffect(() => {
+    if (!adminDateTabsRef.current || !adminSelectedTabRef.current) return;
+    adminDateTabsRef.current.scrollLeft = adminSelectedTabRef.current.offsetLeft - 8;
+  }, [adminDate]);
   const [newNames, setNewNames]   = useState(['','','','','']);
   const [confirmReset, setConfirmReset] = useState(false);
   const [showRaw, setShowRaw]     = useState(false);
@@ -1668,7 +1688,7 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
     } catch (e) { alert('⚠️ エラー: ' + e.message); }
     setBlobDeleting(false);
   }
-  const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
+  const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))].reverse();
   const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
   const passwords = gameState.playerPasswords || {};
   const champPicks = gameState.championPicks || {};
@@ -1680,9 +1700,11 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
       {/* 手動入力（最優先で一番上） */}
       <div style={S.adminSection}>
         <h3 style={S.sectionTitle}>✏️ 結果を手動入力</h3>
-        <div style={S.dateTabs}>
+        <div ref={adminDateTabsRef} style={S.dateTabs}>
           {dates.map(d => (
-            <button key={d} style={{...S.dateTab, ...(adminDate===d?S.dateTabActive:{})}}
+            <button key={d}
+              ref={adminDate===d ? adminSelectedTabRef : null}
+              style={{...S.dateTab, ...(adminDate===d?S.dateTabActive:{})}}
               onClick={() => setAdminDate(d)}>{d}</button>
           ))}
         </div>
