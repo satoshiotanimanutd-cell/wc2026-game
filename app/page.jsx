@@ -115,54 +115,54 @@ const ALL_MATCHES = [
   {id:104,home:'TBD',away:'TBD', kickoff:'2026-07-20T04:00:00+09:00', stage:'決勝'},
 ];
 
-// ─── 放送チャンネル（地上波がある試合も NHK BSP4K/DAZN を併記） ─────────────
+// ─── 放送チャンネル（地上波がある試合も BSP4K/DAZN を併記） ─────────────
 const CHANNELS = {
   // グループステージ（6/12〜6/16 は画像スケジュールより）
-  1:  'NHK総合・NHK BSP4K/DAZN',    // メキシコ×南アフリカ
-  5:  'NHK総合・NHK BSP4K/DAZN',    // カタール×スイス
-  6:  'フジテレビ・NHK BSP4K/DAZN', // ブラジル×モロッコ
-  8:  '日テレ・NHK BSP4K/DAZN',     // オーストラリア×トルコ
-  10: 'NHK総合・NHK BSP4K/DAZN',    // オランダ×日本
-  13: 'NHK総合・NHK BSP4K/DAZN',    // スペイン×カーボベルデ
+  1:  'NHK総合・BSP4K/DAZN',    // メキシコ×南アフリカ
+  5:  'NHK総合・BSP4K/DAZN',    // カタール×スイス
+  6:  'フジテレビ・BSP4K/DAZN', // ブラジル×モロッコ
+  8:  '日テレ・BSP4K/DAZN',     // オーストラリア×トルコ
+  10: 'NHK総合・BSP4K/DAZN',    // オランダ×日本
+  13: 'NHK総合・BSP4K/DAZN',    // スペイン×カーボベルデ
   // 6/17〜 は goal.com 情報より
-  17: 'フジテレビ・NHK BSP4K/DAZN', // フランス×セネガル
-  19: 'NHK総合・NHK BSP4K/DAZN',    // アルゼンチン×アルジェリア
-  21: 'フジテレビ・NHK BSP4K/DAZN', // ポルトガル×DRコンゴ
-  25: '日テレ・NHK BSP4K/DAZN',     // チェコ×南アフリカ
-  28: 'NHK総合・NHK BSP4K/DAZN',    // メキシコ×韓国
-  29: 'NHK総合・NHK BSP4K/DAZN',    // アメリカ×オーストラリア
-  30: 'フジテレビ・NHK BSP4K/DAZN', // スコットランド×モロッコ
-  31: 'NHK総合・NHK BSP4K/DAZN',    // ブラジル×ハイチ
-  33: 'NHK総合・NHK BSP4K/DAZN',    // オランダ×スウェーデン
-  34: '日テレ・NHK BSP4K/DAZN',     // ドイツ×コートジボワール
-  36: '日テレ・NHK BSP4K/DAZN',     // チュニジア×日本（NHK BS生+日テレ）
-  37: 'NHK総合・NHK BSP4K/DAZN',    // スペイン×サウジアラビア
-  43: 'NHK総合・NHK BSP4K/DAZN',    // ノルウェー×セネガル
-  45: 'NHK総合・NHK BSP4K/DAZN',    // ポルトガル×ウズベキスタン
-  47: 'フジテレビ・NHK BSP4K/DAZN', // パナマ×クロアチア
-  48: '日テレ・NHK BSP4K/DAZN',     // コロンビア×DRコンゴ
-  49: 'NHK総合・NHK BSP4K/DAZN',    // スイス×カナダ
-  54: 'NHK総合・NHK BSP4K/DAZN',    // チェコ×メキシコ
-  58: 'NHK総合・NHK BSP4K/DAZN',    // 日本×スウェーデン
-  59: '日テレ・NHK BSP4K/DAZN',     // トルコ×アメリカ
-  61: 'NHK総合・NHK BSP4K/DAZN',    // ノルウェー×フランス
-  64: '日テレ・NHK BSP4K/DAZN',     // ウルグアイ×スペイン
-  65: 'フジテレビ・NHK BSP4K/DAZN', // ニュージーランド×ベルギー
-  69: 'フジテレビ・NHK BSP4K/DAZN', // コロンビア×ポルトガル
-  72: 'NHK総合・NHK BSP4K/DAZN',    // ヨルダン×アルゼンチン
+  17: 'フジテレビ・BSP4K/DAZN', // フランス×セネガル
+  19: 'NHK総合・BSP4K/DAZN',    // アルゼンチン×アルジェリア
+  21: 'フジテレビ・BSP4K/DAZN', // ポルトガル×DRコンゴ
+  25: '日テレ・BSP4K/DAZN',     // チェコ×南アフリカ
+  28: 'NHK総合・BSP4K/DAZN',    // メキシコ×韓国
+  29: 'NHK総合・BSP4K/DAZN',    // アメリカ×オーストラリア
+  30: 'フジテレビ・BSP4K/DAZN', // スコットランド×モロッコ
+  31: 'NHK総合・BSP4K/DAZN',    // ブラジル×ハイチ
+  33: 'NHK総合・BSP4K/DAZN',    // オランダ×スウェーデン
+  34: '日テレ・BSP4K/DAZN',     // ドイツ×コートジボワール
+  36: '日テレ・BSP4K/DAZN',     // チュニジア×日本（NHK BS生+日テレ）
+  37: 'NHK総合・BSP4K/DAZN',    // スペイン×サウジアラビア
+  43: 'NHK総合・BSP4K/DAZN',    // ノルウェー×セネガル
+  45: 'NHK総合・BSP4K/DAZN',    // ポルトガル×ウズベキスタン
+  47: 'フジテレビ・BSP4K/DAZN', // パナマ×クロアチア
+  48: '日テレ・BSP4K/DAZN',     // コロンビア×DRコンゴ
+  49: 'NHK総合・BSP4K/DAZN',    // スイス×カナダ
+  54: 'NHK総合・BSP4K/DAZN',    // チェコ×メキシコ
+  58: 'NHK総合・BSP4K/DAZN',    // 日本×スウェーデン
+  59: '日テレ・BSP4K/DAZN',     // トルコ×アメリカ
+  61: 'NHK総合・BSP4K/DAZN',    // ノルウェー×フランス
+  64: '日テレ・BSP4K/DAZN',     // ウルグアイ×スペイン
+  65: 'フジテレビ・BSP4K/DAZN', // ニュージーランド×ベルギー
+  69: 'フジテレビ・BSP4K/DAZN', // コロンビア×ポルトガル
+  72: 'NHK総合・BSP4K/DAZN',    // ヨルダン×アルゼンチン
   // ラウンド32
-  78: '日テレ・NHK BSP4K/DAZN',     // 7/1 2:00
-  83: '日テレ・NHK BSP4K/DAZN',     // 7/3 8:00
-  86: '日テレ・NHK BSP4K/DAZN',     // 7/4 7:00
+  78: '日テレ・BSP4K/DAZN',     // 7/1 2:00
+  83: '日テレ・BSP4K/DAZN',     // 7/3 8:00
+  86: '日テレ・BSP4K/DAZN',     // 7/4 7:00
   // ラウンド16
-  89: '日テレ・NHK BSP4K/DAZN',     // 7/5 6:00
-  93: '日テレ・NHK BSP4K/DAZN',     // 7/7 4:00
+  89: '日テレ・BSP4K/DAZN',     // 7/5 6:00
+  93: '日テレ・BSP4K/DAZN',     // 7/7 4:00
   // 3位決定戦・決勝
-  103: 'NHK総合・NHK BSP4K/DAZN',
-  104: 'NHK総合・NHK BSP4K/DAZN',
+  103: 'NHK総合・BSP4K/DAZN',
+  104: 'NHK総合・BSP4K/DAZN',
 };
 function getChannel(matchId) {
-  return CHANNELS[matchId] || 'NHK BSP4K/DAZN';
+  return CHANNELS[matchId] || 'BSP4K/DAZN';
 }
 
 const BET_RESULT = 1000;
