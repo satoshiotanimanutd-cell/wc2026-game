@@ -270,55 +270,77 @@ function seededPick(arr, seed) {
 }
 
 // ─── ポイント計算 ─────────────────────────────────────────
+// 結果が確定した試合をキックオフ時刻でグループ化（同時キックオフ対応）
+function groupByKickoff(matches) {
+  const groups = [];
+  const seen = {};
+  matches.forEach(m => {
+    if (!m.result || m.result.homeGoals === null || m.result.homeGoals === undefined) return;
+    const key = m.kickoff;
+    if (!seen[key]) { seen[key] = []; groups.push(seen[key]); }
+    seen[key].push(m);
+  });
+  return groups;
+}
+
 function calcPoints(matches, players) {
   const pts = {};
   players.forEach(p => pts[p] = 0);
   let carryover = 0;
 
-  matches.forEach(m => {
-    if (m.result === null || m.result === undefined) return;
-    const { homeGoals, awayGoals } = m.result;
-    if (homeGoals === null || awayGoals === null) return;
-    const correctResult = getResult(homeGoals, awayGoals);
-
-    // ─ 勝敗ベット（誰も当たらなければ全員変動なし） ─
-    const resultWinners = players.filter(p => {
-      const pred = m.predictions?.[p];
-      return pred && pred.result === correctResult;
-    });
-    if (resultWinners.length > 0) {
-      const resultPool = BET_RESULT * players.length;
-      players.forEach(p => { pts[p] -= BET_RESULT; });
-      const share = Math.floor(resultPool / resultWinners.length);
-      const rem = resultPool % resultWinners.length;
-      resultWinners.forEach(p => { pts[p] += share; });
-      if (rem > 0) {
-        // 同率タイはシードベースの抽選で決定
-        const tied = resultWinners.filter(p => pts[p] === Math.min(...resultWinners.map(w => pts[w])));
-        const lucky = seededPick(tied, m.id * 10000 + resultPool);
-        pts[lucky] += rem;
+  groupByKickoff(matches).forEach(group => {
+    // ─ 勝敗ベット（各試合独立） ─
+    group.forEach(m => {
+      const { homeGoals, awayGoals } = m.result;
+      const correctResult = getResult(homeGoals, awayGoals);
+      const resultWinners = players.filter(p => m.predictions?.[p]?.result === correctResult);
+      if (resultWinners.length > 0) {
+        const pool = BET_RESULT * players.length;
+        players.forEach(p => { pts[p] -= BET_RESULT; });
+        const share = Math.floor(pool / resultWinners.length);
+        const rem = pool % resultWinners.length;
+        resultWinners.forEach(p => { pts[p] += share; });
+        if (rem > 0) {
+          const tied = resultWinners.filter(p => pts[p] === Math.min(...resultWinners.map(w => pts[w])));
+          pts[seededPick(tied, m.id * 10000 + pool)] += rem;
+        }
       }
-    }
-
-    // ─ スコアベット ─
-    const scorePool = BET_SCORE * players.length + carryover;
-    const scoreWinners = players.filter(p => {
-      const pred = m.predictions?.[p];
-      return pred && Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals;
     });
-    players.forEach(p => { pts[p] -= BET_SCORE; });
-    if (scoreWinners.length > 0) {
-      const share = Math.floor(scorePool / scoreWinners.length);
-      const rem = scorePool % scoreWinners.length;
-      scoreWinners.forEach(p => { pts[p] += share; });
-      if (rem > 0) {
-        const tied = scoreWinners.filter(p => pts[p] === Math.min(...scoreWinners.map(w => pts[w])));
-        const lucky = seededPick(tied, m.id * 10000 + 1 + scorePool);
-        pts[lucky] += rem;
-      }
-      carryover = 0;
+
+    // ─ スコアベット（同時キックオフはキャリーオーバーを均等分配） ─
+    const winnersList = group.map(m => {
+      const { homeGoals, awayGoals } = m.result;
+      return players.filter(p => {
+        const pred = m.predictions?.[p];
+        return pred && Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals;
+      });
+    });
+    const nW = winnersList.filter(w => w.length > 0).length;
+    group.forEach(() => players.forEach(p => { pts[p] -= BET_SCORE; }));
+
+    if (nW > 0) {
+      // キャリーオーバーを的中者がいる試合数で均等割り（端数は先勝ち試合に加算）
+      const coShare = Math.floor(carryover / nW);
+      let coRem = carryover % nW;
+      let newCarryover = 0;
+      group.forEach((m, i) => {
+        const sw = winnersList[i];
+        if (sw.length > 0) {
+          const pool = BET_SCORE * players.length + coShare + (coRem-- > 0 ? 1 : 0);
+          const share = Math.floor(pool / sw.length);
+          const rem = pool % sw.length;
+          sw.forEach(p => { pts[p] += share; });
+          if (rem > 0) {
+            const tied = sw.filter(p => pts[p] === Math.min(...sw.map(w => pts[w])));
+            pts[seededPick(tied, m.id * 10000 + 1 + pool)] += rem;
+          }
+        } else {
+          newCarryover += BET_SCORE * players.length;
+        }
+      });
+      carryover = newCarryover;
     } else {
-      carryover += BET_SCORE * players.length;
+      carryover += BET_SCORE * players.length * group.length;
     }
   });
 
@@ -333,81 +355,104 @@ function calcPlayerHistory(targetPlayer, matches, players) {
   const allPts = {};
   players.forEach(p => allPts[p] = 0);
 
-  matches.forEach(m => {
-    if (!m.result || m.result.homeGoals === null || m.result.homeGoals === undefined) return;
-    const { homeGoals, awayGoals } = m.result;
-    const correctResult = getResult(homeGoals, awayGoals);
+  groupByKickoff(matches).forEach(group => {
     const n = players.length;
-    const pred = m.predictions?.[targetPlayer];
 
-    // 勝敗ベット（誰も当たらなければ変動なし）
-    const resultWinners = players.filter(p => m.predictions?.[p]?.result === correctResult);
-    const myResultCorrect = pred?.result === correctResult;
-    const noResultWinner = resultWinners.length === 0;
-    let resultDelta = 0;
-    let resultRemInfo = null;
-    if (!noResultWinner) {
-      const resultPool = BET_RESULT * n;
-      players.forEach(p => { allPts[p] -= BET_RESULT; });
-      const share = Math.floor(resultPool / resultWinners.length);
-      const rem = resultPool % resultWinners.length;
-      resultWinners.forEach(p => { allPts[p] += share; });
-      let remRecipient = null;
-      if (rem > 0) {
-        const tied = resultWinners.filter(p => allPts[p] === Math.min(...resultWinners.map(w => allPts[w])));
-        remRecipient = seededPick(tied, m.id * 10000 + resultPool);
-        allPts[remRecipient] += rem;
-        resultRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
+    // ─ 勝敗ベット（各試合独立） ─
+    group.forEach(m => {
+      const { homeGoals, awayGoals } = m.result;
+      const correctResult = getResult(homeGoals, awayGoals);
+      const pred = m.predictions?.[targetPlayer];
+      const resultWinners = players.filter(p => m.predictions?.[p]?.result === correctResult);
+      const myResultCorrect = pred?.result === correctResult;
+      const noResultWinner = resultWinners.length === 0;
+      let resultDelta = 0;
+      let resultRemInfo = null;
+      if (!noResultWinner) {
+        const resultPool = BET_RESULT * n;
+        players.forEach(p => { allPts[p] -= BET_RESULT; });
+        const share = Math.floor(resultPool / resultWinners.length);
+        const rem = resultPool % resultWinners.length;
+        resultWinners.forEach(p => { allPts[p] += share; });
+        let remRecipient = null;
+        if (rem > 0) {
+          const tied = resultWinners.filter(p => allPts[p] === Math.min(...resultWinners.map(w => allPts[w])));
+          remRecipient = seededPick(tied, m.id * 10000 + resultPool);
+          allPts[remRecipient] += rem;
+          resultRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
+        }
+        resultDelta = myResultCorrect
+          ? share - BET_RESULT + (remRecipient === targetPlayer ? rem : 0)
+          : -BET_RESULT;
       }
-      resultDelta = myResultCorrect
-        ? share - BET_RESULT + (remRecipient === targetPlayer ? rem : 0)
-        : -BET_RESULT;
-    }
-
-    // スコアベット
-    const scorePool = BET_SCORE * n + carryover;
-    const scoreWinners = players.filter(p => {
-      const pp = m.predictions?.[p];
-      return pp && Number(pp.homeGoals) === homeGoals && Number(pp.awayGoals) === awayGoals;
+      // 勝敗デルタを一時記録（スコアベット処理後にまとめてpush）
+      m._resultDelta = resultDelta;
+      m._resultRemInfo = resultRemInfo;
+      m._myResultCorrect = myResultCorrect;
+      m._noResultWinner = noResultWinner;
     });
-    const myScoreCorrect = pred
-      ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
-      : false;
-    const noScoreWinner = scoreWinners.length === 0;
-    players.forEach(p => { allPts[p] -= BET_SCORE; });
-    let scoreDelta = -BET_SCORE;
-    let scoreRemInfo = null;
+
+    // ─ スコアベット（同時キックオフはキャリーオーバーを均等分配） ─
+    const winnersList = group.map(m => {
+      const { homeGoals, awayGoals } = m.result;
+      return players.filter(p => {
+        const pred = m.predictions?.[p];
+        return pred && Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals;
+      });
+    });
+    const nW = winnersList.filter(w => w.length > 0).length;
+    group.forEach(() => players.forEach(p => { allPts[p] -= BET_SCORE; }));
     const prevCarryover = carryover;
-    if (!noScoreWinner) {
-      const share = Math.floor(scorePool / scoreWinners.length);
-      const rem = scorePool % scoreWinners.length;
-      scoreWinners.forEach(p => { allPts[p] += share; });
-      let remRecipient = null;
-      if (rem > 0) {
-        const tied = scoreWinners.filter(p => allPts[p] === Math.min(...scoreWinners.map(w => allPts[w])));
-        remRecipient = seededPick(tied, m.id * 10000 + 1 + scorePool);
-        allPts[remRecipient] += rem;
-        scoreRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
-      }
-      if (myScoreCorrect) {
-        scoreDelta = share - BET_SCORE + (remRecipient === targetPlayer ? rem : 0);
-      }
-      carryover = 0;
-    } else {
-      carryover += BET_SCORE * n;
-    }
+    const coShare = nW > 0 ? Math.floor(carryover / nW) : 0;
+    let coRem = nW > 0 ? carryover % nW : 0;
+    let newCarryover = 0;
 
-    const delta = resultDelta + scoreDelta;
-    cumulative += delta;
+    group.forEach((m, i) => {
+      const { homeGoals, awayGoals } = m.result;
+      const pred = m.predictions?.[targetPlayer];
+      const scoreWinners = winnersList[i];
+      const myScoreCorrect = pred
+        ? (Number(pred.homeGoals) === homeGoals && Number(pred.awayGoals) === awayGoals)
+        : false;
+      const noScoreWinner = scoreWinners.length === 0;
+      let scoreDelta = -BET_SCORE;
+      let scoreRemInfo = null;
+      let usedCarryover = 0;
 
-    history.push({
-      home: m.home, away: m.away, homeGoals, awayGoals,
-      resultDelta, scoreDelta, delta, cumulative,
-      myResultCorrect, myScoreCorrect,
-      noResultWinner, noScoreWinner,
-      usedCarryover: prevCarryover,
-      resultRemInfo, scoreRemInfo,
+      if (!noScoreWinner) {
+        const myCo = coShare + (coRem-- > 0 ? 1 : 0);
+        usedCarryover = myCo;
+        const scorePool = BET_SCORE * n + myCo;
+        const share = Math.floor(scorePool / scoreWinners.length);
+        const rem = scorePool % scoreWinners.length;
+        scoreWinners.forEach(p => { allPts[p] += share; });
+        let remRecipient = null;
+        if (rem > 0) {
+          const tied = scoreWinners.filter(p => allPts[p] === Math.min(...scoreWinners.map(w => allPts[w])));
+          remRecipient = seededPick(tied, m.id * 10000 + 1 + scorePool);
+          allPts[remRecipient] += rem;
+          scoreRemInfo = { amount: rem, recipient: remRecipient, wasLottery: tied.length > 1 };
+        }
+        if (myScoreCorrect) {
+          scoreDelta = share - BET_SCORE + (remRecipient === targetPlayer ? rem : 0);
+        }
+      } else {
+        newCarryover += BET_SCORE * n;
+      }
+
+      const delta = m._resultDelta + scoreDelta;
+      cumulative += delta;
+      history.push({
+        home: m.home, away: m.away, homeGoals, awayGoals,
+        resultDelta: m._resultDelta, scoreDelta, delta, cumulative,
+        myResultCorrect: m._myResultCorrect, myScoreCorrect,
+        noResultWinner: m._noResultWinner, noScoreWinner,
+        usedCarryover,
+        resultRemInfo: m._resultRemInfo, scoreRemInfo,
+      });
     });
+
+    carryover = nW > 0 ? newCarryover : prevCarryover + BET_SCORE * n * group.length;
   });
 
   return history;
