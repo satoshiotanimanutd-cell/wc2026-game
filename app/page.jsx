@@ -1259,6 +1259,19 @@ export default function App() {
           onSetTeam={setTeamName}
           pts={pts}
           co={co}
+          onFixPrediction={async (matchId, player, pred) => {
+            try {
+              const latest = await fetchLatestState();
+              const nm = latest.matches.map(m => {
+                if (m.id !== matchId) return m;
+                const newPreds = { ...m.predictions, [player]: pred };
+                return { ...m, predictions: newPreds };
+              });
+              const ns = { ...latest, matches: nm };
+              setGameState(ns);
+              return await saveState(ns);
+            } catch { return false; }
+          }}
           onSetupPlayers={async (players) => {
             backupPlayers(players, {});
             const ns = { ...gameState, players, matches: initMatches(), carryover: 0, playerPasswords: {} };
@@ -1719,10 +1732,16 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 }
 
 // ─── 管理者ビュー ──────────────────────────────────────────
-function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload }) {
+function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload, onFixPrediction }) {
   const [adminDate, setAdminDate] = useState(getFirstUnresultedDate(gameState.matches));
   const adminDateTabsRef = useRef(null);
   const adminSelectedTabRef = useRef(null);
+  const [fixPlayer, setFixPlayer] = useState('');
+  const [fixMatchId, setFixMatchId] = useState('');
+  const [fixResult, setFixResult] = useState('');
+  const [fixHome, setFixHome] = useState('');
+  const [fixAway, setFixAway] = useState('');
+  const [fixMsg, setFixMsg] = useState('');
 
   useEffect(() => {
     if (!adminDateTabsRef.current || !adminSelectedTabRef.current) return;
@@ -1768,6 +1787,63 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
   return (
     <div style={S.adminWrap}>
       <h2 style={S.adminTitle}>🔐 管理者パネル</h2>
+
+      {/* 予想の修正（管理者専用） */}
+      <div style={S.adminSection}>
+        <h3 style={S.sectionTitle}>🛠️ プレイヤーの予想を修正</h3>
+        <div style={{display:'flex', flexDirection:'column', gap:8}}>
+          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+            <select value={fixPlayer} onChange={e=>setFixPlayer(e.target.value)}
+              style={{flex:1, minWidth:100, padding:'6px 8px', background:'#1e293b', color:'#e2e8f0', border:'1px solid #475569', borderRadius:6, fontSize:13}}>
+              <option value=''>プレイヤー選択</option>
+              {gameState.players.map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={fixMatchId} onChange={e=>setFixMatchId(e.target.value)}
+              style={{flex:2, minWidth:180, padding:'6px 8px', background:'#1e293b', color:'#e2e8f0', border:'1px solid #475569', borderRadius:6, fontSize:12}}>
+              <option value=''>試合選択</option>
+              {gameState.matches.map(m=>(
+                <option key={m.id} value={m.id}>{fmtDate(m.kickoff)} {fmtTime(m.kickoff)} {m.home} vs {m.away}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+            <select value={fixResult} onChange={e=>setFixResult(e.target.value)}
+              style={{flex:1, padding:'6px 8px', background:'#1e293b', color:'#e2e8f0', border:'1px solid #475569', borderRadius:6, fontSize:13}}>
+              <option value=''>勝敗選択</option>
+              {fixMatchId && (() => {
+                const fm = gameState.matches.find(m=>m.id===Number(fixMatchId));
+                if (!fm) return null;
+                return [
+                  <option key='home' value='home'>{fm.home}勝ち</option>,
+                  <option key='draw' value='draw'>引き分け</option>,
+                  <option key='away' value='away'>{fm.away}勝ち</option>,
+                ];
+              })()}
+            </select>
+            <input type='number' min='0' max='20' placeholder='ホームGoals' value={fixHome}
+              onChange={e=>setFixHome(e.target.value)}
+              style={{width:90, padding:'6px 8px', background:'#1e293b', color:'#e2e8f0', border:'1px solid #475569', borderRadius:6, fontSize:13}} />
+            <span style={{color:'#94a3b8', alignSelf:'center'}}>-</span>
+            <input type='number' min='0' max='20' placeholder='アウェイGoals' value={fixAway}
+              onChange={e=>setFixAway(e.target.value)}
+              style={{width:90, padding:'6px 8px', background:'#1e293b', color:'#e2e8f0', border:'1px solid #475569', borderRadius:6, fontSize:13}} />
+          </div>
+          <button
+            disabled={!fixPlayer || !fixMatchId || !fixResult}
+            style={{padding:'8px 16px', background: fixPlayer&&fixMatchId&&fixResult ? '#0891b2':'#374151', color:'#fff', border:'none', borderRadius:6, fontSize:13, cursor: fixPlayer&&fixMatchId&&fixResult?'pointer':'default'}}
+            onClick={async () => {
+              setFixMsg('⏳ 修正中...');
+              const pred = { result: fixResult };
+              if (fixHome !== '' && fixAway !== '') { pred.homeGoals = Number(fixHome); pred.awayGoals = Number(fixAway); }
+              const ok = await onFixPrediction(Number(fixMatchId), fixPlayer, pred);
+              setFixMsg(ok ? '✅ 修正しました' : '⚠️ 修正に失敗しました');
+              setTimeout(() => setFixMsg(''), 3000);
+            }}>
+            修正を確定する
+          </button>
+          {fixMsg && <p style={{color: fixMsg.startsWith('✅')?'#34d399':'#f87171', fontSize:12, margin:0}}>{fixMsg}</p>}
+        </div>
+      </div>
 
       {/* 手動入力（最優先で一番上） */}
       <div style={S.adminSection}>
