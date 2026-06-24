@@ -767,25 +767,45 @@ export default function App() {
     setSavingMatch(prev => ({ ...prev, [matchId]: false }));
   }
 
-  // ─ 管理者：結果入力 ─
-  function setMatchResult(matchId, homeGoals, awayGoals) {
-    const nm = gameState.matches.map(m => {
-      if (m.id !== matchId) return m;
-      return { ...m, result: { homeGoals: Number(homeGoals), awayGoals: Number(awayGoals) } };
+  // ─ サーバーの最新状態を取得するヘルパー ─
+  async function fetchLatestState() {
+    const res = await fetch('/api/game-state?' + Date.now(), {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
     });
-    const ns = { ...gameState, matches: nm };
-    setGameState(ns);
-    saveState(ns);
+    const data = await res.json();
+    return (data && data.players) ? data : gameState;
   }
 
-  // ─ 管理者：チーム名変更（ノックアウト） ─
-  function setTeamName(matchId, field, value) {
-    const nm = gameState.matches.map(m =>
-      m.id === matchId ? { ...m, [field]: value } : m
-    );
-    const ns = { ...gameState, matches: nm };
-    setGameState(ns);
-    saveState(ns);
+  // ─ 管理者：結果入力（プレイヤーの予想を消さないよう最新状態を取得してから保存） ─
+  async function setMatchResult(matchId, homeGoals, awayGoals) {
+    try {
+      const latest = await fetchLatestState();
+      const nm = latest.matches.map(m => {
+        if (m.id !== matchId) return m;
+        return { ...m, result: { homeGoals: Number(homeGoals), awayGoals: Number(awayGoals) } };
+      });
+      const ns = { ...latest, matches: nm };
+      setGameState(ns);
+      saveState(ns);
+    } catch (e) {
+      setMsg('⚠️ 結果保存に失敗しました: ' + e.message);
+    }
+  }
+
+  // ─ 管理者：チーム名変更（ノックアウト）─
+  async function setTeamName(matchId, field, value) {
+    try {
+      const latest = await fetchLatestState();
+      const nm = latest.matches.map(m =>
+        m.id === matchId ? { ...m, [field]: value } : m
+      );
+      const ns = { ...latest, matches: nm };
+      setGameState(ns);
+      saveState(ns);
+    } catch (e) {
+      setMsg('⚠️ チーム名保存に失敗しました: ' + e.message);
+    }
   }
 
   // ─ 自動結果取得 ─
@@ -793,7 +813,8 @@ export default function App() {
     setFetchingResults(true);
     setMsg('');
     try {
-      const pending = gameState.matches.filter(m =>
+      const latest = await fetchLatestState();
+      const pending = latest.matches.filter(m =>
         isLocked(m.kickoff) && (!m.result || m.result.homeGoals === null)
       ).slice(0, 10);
       if (!pending.length) { setMsg('取得対象の試合がありません'); setFetchingResults(false); return; }
@@ -804,13 +825,13 @@ export default function App() {
       });
       const { results, error } = await res.json();
       if (error) { setMsg('エラー: ' + error); setFetchingResults(false); return; }
-      let nm = [...gameState.matches];
+      let nm = [...latest.matches];
       results.forEach(r => {
         if (r.homeGoals !== null && r.awayGoals !== null) {
           nm = nm.map(m => m.id === r.id ? { ...m, result: { homeGoals: r.homeGoals, awayGoals: r.awayGoals } } : m);
         }
       });
-      const ns = { ...gameState, matches: nm };
+      const ns = { ...latest, matches: nm };
       setGameState(ns);
       await saveState(ns);
       setMsg(`✅ ${results.filter(r => r.homeGoals !== null).length}試合の結果を取得しました`);
