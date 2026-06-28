@@ -165,6 +165,54 @@ function getChannel(matchId) {
   return CHANNELS[matchId] || 'BSP4K/DAZN';
 }
 
+// ─── ノックアウトブラケット（勝者自動伝播） ──────────────────
+// key: 試合ID, home/away: その試合のホーム/アウェイを決める前ラウンドの試合ID
+// loser: true のときは敗者（3位決定戦）
+const BRACKET = {
+  // ラウンド16
+  90:  { home: 73,  away: 75  },
+  89:  { home: 74,  away: 77  },
+  91:  { home: 76,  away: 78  },
+  92:  { home: 79,  away: 80  },
+  93:  { home: 83,  away: 84  },
+  94:  { home: 81,  away: 82  },
+  95:  { home: 86,  away: 88  },
+  96:  { home: 85,  away: 87  },
+  // 準々決勝
+  97:  { home: 89,  away: 90  },
+  98:  { home: 93,  away: 94  },
+  99:  { home: 91,  away: 92  },
+  100: { home: 95,  away: 96  },
+  // 準決勝
+  101: { home: 97,  away: 98  },
+  102: { home: 99,  away: 100 },
+  // 3位決定戦（準決勝の敗者）
+  103: { home: 101, away: 102, loser: true },
+  // 決勝（準決勝の勝者）
+  104: { home: 101, away: 102 },
+};
+
+function propagateWinners(matches) {
+  const map = Object.fromEntries(matches.map(m => [m.id, { ...m }]));
+  for (const [destId, src] of Object.entries(BRACKET)) {
+    const dest = map[Number(destId)];
+    if (!dest) continue;
+    const pick = (srcMatch, wantLoser) => {
+      if (!srcMatch?.result || srcMatch.result.homeGoals === null) return null;
+      const { homeGoals, awayGoals } = srcMatch.result;
+      if (homeGoals === awayGoals) return null;
+      const winner = homeGoals > awayGoals ? srcMatch.home : srcMatch.away;
+      const loser  = homeGoals > awayGoals ? srcMatch.away : srcMatch.home;
+      return wantLoser ? loser : winner;
+    };
+    const newHome = pick(map[src.home], src.loser);
+    const newAway = pick(map[src.away], src.loser);
+    if (newHome) dest.home = newHome;
+    if (newAway) dest.away = newAway;
+  }
+  return matches.map(m => map[m.id]);
+}
+
 const BET_RESULT = 1000;
 const BET_SCORE  = 500;
 const ADMIN_PW   = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '4818';
@@ -819,10 +867,12 @@ export default function App() {
   async function setMatchResult(matchId, homeGoals, awayGoals) {
     try {
       const latest = await fetchLatestState();
-      const nm = latest.matches.map(m => {
+      const updated = latest.matches.map(m => {
         if (m.id !== matchId) return m;
         return { ...m, result: { homeGoals: Number(homeGoals), awayGoals: Number(awayGoals) } };
       });
+      // ノックアウト勝者を次ラウンドの試合に自動反映
+      const nm = propagateWinners(updated);
       const ns = { ...latest, matches: nm };
       setGameState(ns);
       saveState(ns);
