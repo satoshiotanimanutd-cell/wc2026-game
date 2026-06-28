@@ -555,8 +555,10 @@ export default function App() {
           const base = allMatchMap[m.id];
           if (!base) return m;
           let u = m;
-          if (m.home === 'TBD' && base.home !== 'TBD') { u = { ...u, home: base.home }; needsSync = true; }
-          if (m.away === 'TBD' && base.away !== 'TBD') { u = { ...u, away: base.away }; needsSync = true; }
+          // ラウンド32は常にALL_MATCHESで上書き（壊れたデータも修正）、他はTBDのみ補完
+          const forceUpdate = m.stage === 'ラウンド32';
+          if ((forceUpdate || m.home === 'TBD') && base.home !== 'TBD') { u = { ...u, home: base.home }; needsSync = true; }
+          if ((forceUpdate || m.away === 'TBD') && base.away !== 'TBD') { u = { ...u, away: base.away }; needsSync = true; }
           return u;
         }));
         const finalData = needsSync ? { ...data, matches: syncedMatches } : data;
