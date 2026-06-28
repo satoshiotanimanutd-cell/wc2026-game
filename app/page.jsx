@@ -77,22 +77,22 @@ const ALL_MATCHES = [
   {id:71, home:'アルジェリア', away:'オーストリア',  kickoff:'2026-06-28T11:00:00+09:00', stage:'グループJ'},
   {id:72, home:'ヨルダン',     away:'アルゼンチン',  kickoff:'2026-06-28T11:00:00+09:00', stage:'グループJ'},
   // ラウンド32
-  {id:73, home:'TBD',away:'TBD', kickoff:'2026-06-29T04:00:00+09:00', stage:'ラウンド32'},
-  {id:74, home:'TBD',away:'TBD', kickoff:'2026-06-30T05:30:00+09:00', stage:'ラウンド32'},
-  {id:75, home:'TBD',away:'TBD', kickoff:'2026-06-30T10:00:00+09:00', stage:'ラウンド32'},
-  {id:76, home:'TBD',away:'TBD', kickoff:'2026-06-30T02:00:00+09:00', stage:'ラウンド32'},
-  {id:77, home:'TBD',away:'TBD', kickoff:'2026-07-01T06:00:00+09:00', stage:'ラウンド32'},
-  {id:78, home:'TBD',away:'TBD', kickoff:'2026-07-01T02:00:00+09:00', stage:'ラウンド32'},
-  {id:79, home:'TBD',away:'TBD', kickoff:'2026-07-01T10:00:00+09:00', stage:'ラウンド32'},
-  {id:80, home:'TBD',away:'TBD', kickoff:'2026-07-02T01:00:00+09:00', stage:'ラウンド32'},
-  {id:81, home:'TBD',away:'TBD', kickoff:'2026-07-02T09:00:00+09:00', stage:'ラウンド32'},
-  {id:82, home:'TBD',away:'TBD', kickoff:'2026-07-02T05:00:00+09:00', stage:'ラウンド32'},
-  {id:83, home:'TBD',away:'TBD', kickoff:'2026-07-03T08:00:00+09:00', stage:'ラウンド32'},
-  {id:84, home:'TBD',away:'TBD', kickoff:'2026-07-03T04:00:00+09:00', stage:'ラウンド32'},
-  {id:85, home:'TBD',away:'TBD', kickoff:'2026-07-03T12:00:00+09:00', stage:'ラウンド32'},
-  {id:86, home:'TBD',away:'TBD', kickoff:'2026-07-04T07:00:00+09:00', stage:'ラウンド32'},
-  {id:87, home:'TBD',away:'TBD', kickoff:'2026-07-04T10:30:00+09:00', stage:'ラウンド32'},
-  {id:88, home:'TBD',away:'TBD', kickoff:'2026-07-04T03:00:00+09:00', stage:'ラウンド32'},
+  {id:73, home:'南アフリカ',   away:'カナダ',         kickoff:'2026-06-29T04:00:00+09:00', stage:'ラウンド32'},
+  {id:74, home:'ドイツ',       away:'パラグアイ',     kickoff:'2026-06-30T05:30:00+09:00', stage:'ラウンド32'},
+  {id:75, home:'オランダ',     away:'モロッコ',       kickoff:'2026-06-30T10:00:00+09:00', stage:'ラウンド32'},
+  {id:76, home:'ブラジル',     away:'日本',           kickoff:'2026-06-30T02:00:00+09:00', stage:'ラウンド32'},
+  {id:77, home:'フランス',     away:'スウェーデン',   kickoff:'2026-07-01T06:00:00+09:00', stage:'ラウンド32'},
+  {id:78, home:'コートジボワール',away:'ノルウェー',  kickoff:'2026-07-01T02:00:00+09:00', stage:'ラウンド32'},
+  {id:79, home:'メキシコ',     away:'エクアドル',     kickoff:'2026-07-01T10:00:00+09:00', stage:'ラウンド32'},
+  {id:80, home:'イングランド', away:'コンゴDR',       kickoff:'2026-07-02T01:00:00+09:00', stage:'ラウンド32'},
+  {id:81, home:'アメリカ',     away:'ボスニア',       kickoff:'2026-07-02T09:00:00+09:00', stage:'ラウンド32'},
+  {id:82, home:'ベルギー',     away:'セネガル',       kickoff:'2026-07-02T05:00:00+09:00', stage:'ラウンド32'},
+  {id:83, home:'ポルトガル',   away:'クロアチア',     kickoff:'2026-07-03T08:00:00+09:00', stage:'ラウンド32'},
+  {id:84, home:'スペイン',     away:'オーストリア',   kickoff:'2026-07-03T04:00:00+09:00', stage:'ラウンド32'},
+  {id:85, home:'スイス',       away:'アルジェリア',   kickoff:'2026-07-03T12:00:00+09:00', stage:'ラウンド32'},
+  {id:86, home:'アルゼンチン', away:'カーボベルデ',   kickoff:'2026-07-04T07:00:00+09:00', stage:'ラウンド32'},
+  {id:87, home:'コロンビア',   away:'ガーナ',         kickoff:'2026-07-04T10:30:00+09:00', stage:'ラウンド32'},
+  {id:88, home:'オーストラリア',away:'エジプト',      kickoff:'2026-07-04T03:00:00+09:00', stage:'ラウンド32'},
   // ラウンド16
   {id:89, home:'TBD',away:'TBD', kickoff:'2026-07-05T06:00:00+09:00', stage:'ラウンド16'},
   {id:90, home:'TBD',away:'TBD', kickoff:'2026-07-05T02:00:00+09:00', stage:'ラウンド16'},
@@ -548,9 +548,22 @@ export default function App() {
       });
       const data = await res.json();
       if (data && data.players && data.players.length > 0) {
-        setGameState(data);
-        backupPlayers(data.players, data.playerPasswords); // localStorageにもバックアップ
-        setSelDate(getFirstUnresultedDate(data.matches));
+        // ALL_MATCHESのチーム名でTBDを補完（R32チーム名反映 / 勝者自動伝播）
+        const allMatchMap = Object.fromEntries(ALL_MATCHES.map(m => [m.id, m]));
+        let needsSync = false;
+        const syncedMatches = propagateWinners(data.matches.map(m => {
+          const base = allMatchMap[m.id];
+          if (!base) return m;
+          let u = m;
+          if (m.home === 'TBD' && base.home !== 'TBD') { u = { ...u, home: base.home }; needsSync = true; }
+          if (m.away === 'TBD' && base.away !== 'TBD') { u = { ...u, away: base.away }; needsSync = true; }
+          return u;
+        }));
+        const finalData = needsSync ? { ...data, matches: syncedMatches } : data;
+        if (needsSync) saveState(finalData); // Redisにも即反映
+        setGameState(finalData);
+        backupPlayers(finalData.players, finalData.playerPasswords); // localStorageにもバックアップ
+        setSelDate(getFirstUnresultedDate(finalData.matches));
         // ログイン中のプレイヤーがリストに存在しない場合は自動ログアウト
         const savedPlayer = localStorage.getItem('wc2026_player');
         if (savedPlayer && savedPlayer !== '__admin__' && !data.players.includes(savedPlayer)) {
