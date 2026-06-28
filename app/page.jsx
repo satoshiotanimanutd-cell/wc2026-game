@@ -199,10 +199,17 @@ function propagateWinners(matches) {
     if (!dest) continue;
     const pick = (srcMatch, wantLoser) => {
       if (!srcMatch?.result || srcMatch.result.homeGoals === null) return null;
-      const { homeGoals, awayGoals } = srcMatch.result;
-      if (homeGoals === awayGoals) return null;
-      const winner = homeGoals > awayGoals ? srcMatch.home : srcMatch.away;
-      const loser  = homeGoals > awayGoals ? srcMatch.away : srcMatch.home;
+      const { homeGoals, awayGoals, pkWinner } = srcMatch.result;
+      let winner, loser;
+      if (homeGoals !== awayGoals) {
+        winner = homeGoals > awayGoals ? srcMatch.home : srcMatch.away;
+        loser  = homeGoals > awayGoals ? srcMatch.away : srcMatch.home;
+      } else if (pkWinner) {
+        winner = pkWinner === 'home' ? srcMatch.home : srcMatch.away;
+        loser  = pkWinner === 'home' ? srcMatch.away : srcMatch.home;
+      } else {
+        return null; // PK勝者未設定
+      }
       return wantLoser ? loser : winner;
     };
     const newHome = pick(map[src.home], src.loser);
@@ -913,6 +920,22 @@ export default function App() {
     }
   }
 
+  async function setPkWinner(matchId, pkWinner) {
+    try {
+      const latest = await fetchLatestState();
+      const nm = latest.matches.map(m => {
+        if (m.id !== matchId) return m;
+        return { ...m, result: { ...m.result, pkWinner } };
+      });
+      const propagated = propagateWinners(nm);
+      const ns = { ...latest, matches: propagated };
+      setGameState(ns);
+      saveState(ns);
+    } catch (e) {
+      setMsg('⚠️ PK勝者の保存に失敗しました: ' + e.message);
+    }
+  }
+
   // ─ 自動結果取得 ─
   async function fetchResults() {
     setFetchingResults(true);
@@ -1362,6 +1385,7 @@ export default function App() {
           onFetchResults={fetchResults}
           onSetResult={setMatchResult}
           onSetTeam={setTeamName}
+          onSetPkWinner={setPkWinner}
           pts={pts}
           co={co}
           onFixPrediction={async (matchId, player, pred) => {
@@ -1837,7 +1861,7 @@ function LoginScreen({ gameState, onLogin, onAdmin, onSetup, onSavePassword, loa
 }
 
 // ─── 管理者ビュー ──────────────────────────────────────────
-function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload, onFixPrediction }) {
+function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, onSetTeam, onSetPkWinner, pts, co, onSetupPlayers, onResetPlayers, onUpdateState, onReload, onFixPrediction }) {
   const [adminDate, setAdminDate] = useState(getFirstUnresultedDate(gameState.matches));
   const adminDateTabsRef = useRef(null);
   const adminSelectedTabRef = useRef(null);
@@ -2010,8 +2034,27 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
                       }
                     }} />
                   {m.result?.homeGoals !== undefined && (
-                    <span style={S.savedBadge}>✅ {m.result.homeGoals}-{m.result.awayGoals}</span>
+                    <span style={S.savedBadge}>
+                      ✅ {m.result.homeGoals}-{m.result.awayGoals}
+                      {m.result.pkWinner && ` (PK: ${m.result.pkWinner === 'home' ? m.home : m.away})`}
+                    </span>
                   )}
+                </div>
+              )}
+              {/* PK勝者入力：同点かつノックアウトステージのみ表示 */}
+              {locked && m.result?.homeGoals !== undefined &&
+               m.result.homeGoals === m.result.awayGoals &&
+               !m.stage.startsWith('グループ') && (
+                <div style={{...S.resultInputRow, marginTop: 6}}>
+                  <span style={S.scoreLabel}>🥅 PK勝者:</span>
+                  <select
+                    value={m.result.pkWinner || ''}
+                    onChange={e => onSetPkWinner(m.id, e.target.value)}
+                    style={{...S.tbdInput, width: 'auto', minWidth: 120}}>
+                    <option value=''>選択してください</option>
+                    <option value='home'>{m.home}</option>
+                    <option value='away'>{m.away}</option>
+                  </select>
                 </div>
               )}
               {!locked && <span style={{color:'#666', fontSize:12}}>⏳ キックオフ前</span>}
