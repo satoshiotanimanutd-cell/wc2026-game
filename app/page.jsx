@@ -691,7 +691,9 @@ export default function App() {
 
   const todayMatches = useMemo(() => {
     if (!gameState || !selDate) return [];
-    return gameState.matches.filter(m => fmtDate(m.kickoff) === selDate);
+    return gameState.matches
+      .filter(m => fmtDate(m.kickoff) === selDate)
+      .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
   }, [gameState, selDate]);
 
   // ─ ポイント計算 ─
@@ -1883,7 +1885,9 @@ function AdminView({ gameState, fetchingResults, onFetchResults, onSetResult, on
     setBlobDeleting(false);
   }
   const dates = [...new Set(ALL_MATCHES.map(m => fmtDate(m.kickoff)))];
-  const dayMatches = gameState.matches.filter(m => fmtDate(m.kickoff) === adminDate);
+  const dayMatches = gameState.matches
+    .filter(m => fmtDate(m.kickoff) === adminDate)
+    .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
   const passwords = gameState.playerPasswords || {};
   const champPicks = gameState.championPicks || {};
 
