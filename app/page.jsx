@@ -329,7 +329,8 @@ function seededPick(arr, seed) {
 function groupByKickoff(matches) {
   const groups = [];
   const seen = {};
-  matches.forEach(m => {
+  const sorted = [...matches].sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
+  sorted.forEach(m => {
     if (!m.result || m.result.homeGoals === null || m.result.homeGoals === undefined) return;
     const key = m.kickoff;
     if (!seen[key]) { seen[key] = []; groups.push(seen[key]); }
